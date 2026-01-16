@@ -1,4 +1,5 @@
 import Groq from 'groq-sdk';
+import { getGroqClient } from './groq';
 import { Quiz } from '../types';
 
 // Configuration
@@ -6,13 +7,7 @@ const USE_OLLAMA = import.meta.env.VITE_USE_OLLAMA === 'true';
 const OLLAMA_URL = import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434';
 const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL || 'llama3.2';
 
-const getGroqClient = () => {
-    const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-    if (!apiKey) {
-        throw new Error('GROQ_API_KEY_MISSING: Set VITE_GROQ_API_KEY in .env file');
-    }
-    return new Groq({ apiKey, dangerouslyAllowBrowser: true });
-};
+
 
 const generatePrompt = (topic: string) => {
     return `You are an elite technical quiz generator and expert educator.
