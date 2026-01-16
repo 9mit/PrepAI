@@ -1,0 +1,8 @@
+{
+  "name": "PrepAI - Advanced Interview Platform",
+  "description": "A world-class AI-powered interview preparation platform featuring real-time voice interaction, resume analysis, and performance analytics.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
