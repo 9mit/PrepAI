@@ -101,11 +101,8 @@ npm run preview
 
 PrepAI is a **static web app** and can be deployed to any static hosting service:
 
-#### **Vercel** (Recommended)
-```bash
-npm install -g vercel
-vercel
-```
+#### **Hugging Face Spaces** (Recommended)
+Follow the Docker deployment guide for Hugging Face Spaces.
 
 #### **Netlify**
 ```bash
@@ -130,7 +127,7 @@ Follow their standard static site deployment guides.
 
 For deployment platforms, set environment variables in their dashboard:
 
-- **Vercel**: Project Settings → Environment Variables
+- **Hugging Face**: Space Settings → Variables and secrets → New secret
 - **Netlify**: Site Settings → Build & Deploy → Environment
 - **GitHub Pages**: Use GitHub Secrets for CI/CD
 
