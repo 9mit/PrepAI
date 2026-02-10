@@ -12,7 +12,8 @@ app_port: 7860
 
 # PrepAI - AI Interview Coach
 
-![PrepAI Developer Edition](https://github.com/user-attachments/assets/595cf098-0ea5-42fc-9943-a63c2486a718)
+<img width="916" height="922" alt="image" src="https://github.com/user-attachments/assets/dd3647f9-66f2-4961-932e-031a4f63f0cd" />
+
 
 **Master technical interviews with confidence.**  
 *Real-time AI feedback | Daily Coding Challenges | GitHub Integration | High-Quality Neural Voice*
