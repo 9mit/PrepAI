@@ -6,12 +6,21 @@ import * as tts from '@mintplex-labs/piper-tts-web';
 const VOICE_MODEL_URL = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx';
 const VOICE_CONFIG_URL = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx.json';
 
-let piperInstance: any = null;
+interface PiperInstance {
+    speak: (opts: { text: string; onEnd?: () => void }) => Promise<void>;
+}
+
+interface PiperDownloadProgress {
+    loaded: number;
+    total: number;
+}
+
+let piperInstance: PiperInstance | null = null;
 let isInitializing = false;
 
 interface PiperConfig {
     onInit?: () => void;
-    onError?: (err: any) => void;
+    onError?: (err: Error) => void;
     onDownloadProgress?: (percent: number) => void;
 }
 
@@ -30,7 +39,7 @@ export const initPiper = async (config?: PiperConfig) => {
         console.log("Initializing Piper TTS...");
 
         // Custom progress callback for model download
-        const handleProgress = (progress: any) => {
+        const handleProgress = (progress: PiperDownloadProgress) => {
             if (config?.onDownloadProgress && progress.total) {
                 const percent = Math.round((progress.loaded / progress.total) * 100);
                 config.onDownloadProgress(percent);
@@ -39,7 +48,9 @@ export const initPiper = async (config?: PiperConfig) => {
 
         // Initialize the TTS engine with the specific model
         // NOTE: This library handles the worker creation and ONNX runtime internally
-        piperInstance = await new (tts as any).PiperTTS({
+        // The library does not ship proper TS types, so we use a type assertion
+        const TTS = tts as unknown as { PiperTTS: new (opts: { model: string; config: string; progress: (p: PiperDownloadProgress) => void }) => Promise<PiperInstance> };
+        piperInstance = await new TTS.PiperTTS({
             model: VOICE_MODEL_URL,
             config: VOICE_CONFIG_URL,
             progress: handleProgress
@@ -51,7 +62,7 @@ export const initPiper = async (config?: PiperConfig) => {
 
     } catch (error) {
         console.error("Failed to initialize Piper TTS:", error);
-        if (config?.onError) config.onError(error);
+        if (config?.onError) config.onError(error instanceof Error ? error : new Error(String(error)));
         throw error;
     } finally {
         isInitializing = false;

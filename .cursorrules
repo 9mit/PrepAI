@@ -1,0 +1,21 @@
+# PrepAI v2 - AI Interview Coach Rules
+
+## General Principles
+- Maintain complete, production-ready code. No placeholder logic or `TODO` markers.
+- Never hardcode API keys or secrets in source code. Load everything securely from `.env` via `python-dotenv`.
+
+## Backend (FastAPI + Python 3.11)
+- **Architecture:** Fully asynchronous endpoints (`async def`). 
+- **LLM Usage:** Access Groq API directly using the model `llama-3.3-70b-versatile`. Never use the OpenAI SDK.
+- **Evaluation Loop (Crucial Python Logic):**
+  - Score >= 80 $\rightarrow$ Advance.
+  - Score 50-79 $\rightarrow$ Probing follow-up question.
+  - Score < 50 $\rightarrow$ Hint + Retry same question.
+- **Data Validation:** Enforce strict Pydantic models for all API request bodies and evaluation data schemas.
+- **Speech-to-Text:** Process audio strictly in-memory using Whisper endpoints without caching audio to persistent local disk.
+- **Scoring Formula:** `(accuracy*0.35 + depth*0.25 + adaptability*0.20 + speed*0.10 + confidence*0.10) / 100 * 10000`, clamped to [1, 10000], returned as int.
+
+## Frontend (React 18 + TypeScript + Vite)
+- **TypeScript:** Set `any` as strictly prohibited. Type all interfaces.
+- **State & Actions:** All standard API integrations should route through custom hooks. 
+- **Voice Capture:** Use native `MediaRecorder` API with proactive cleanup handling during component unmount scenarios.

@@ -1,11 +1,10 @@
-import Groq from 'groq-sdk';
-import { getGroqClient } from './groq';
 import { Quiz } from '../types';
 
 // Configuration
 const USE_OLLAMA = import.meta.env.VITE_USE_OLLAMA === 'true';
 const OLLAMA_URL = import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434';
 const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL || 'llama3.2';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 
 
@@ -77,22 +76,46 @@ async function generateWithOllama(topic: string): Promise<Quiz> {
 }
 
 async function generateWithGroq(topic: string): Promise<Quiz> {
-    const groq = getGroqClient();
     const systemPrompt = generatePrompt(topic);
 
-    const completion = await groq.chat.completions.create({
-        messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: `Generate a complete quiz with 5 MCQ questions for: ${topic}` }
-        ],
-        model: 'llama-3.3-70b-versatile',
-        temperature: 0.7,
-        response_format: { type: 'json_object' }
+    // Route through backend to keep API key server-side
+    const response = await fetch(`${API_URL}/interview/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            messages: [{ role: 'user', content: `Generate a complete quiz with 5 MCQ questions for: ${topic}` }],
+            system_prompt: systemPrompt,
+        }),
     });
 
-    const content = completion.choices[0]?.message?.content;
+    if (!response.ok) {
+        throw new Error('Failed to generate quiz via backend');
+    }
+
+    // Consume SSE stream
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let content = '';
+
+    if (reader) {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+            for (const line of lines) {
+                if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+                    try {
+                        const parsed = JSON.parse(line.slice(6));
+                        if (parsed.token) content += parsed.token;
+                    } catch { /* skip */ }
+                }
+            }
+        }
+    }
+
     if (!content) {
-        throw new Error('No content received from Groq');
+        throw new Error('No content received from backend');
     }
 
     return parseQuizResponse(content);

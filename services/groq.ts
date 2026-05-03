@@ -1,195 +1,141 @@
 
-import Groq from "groq-sdk";
+/**
+ * groq.ts — Backend API proxy layer.
+ *
+ * All LLM calls now route through the FastAPI backend.
+ * The Groq SDK and API key never touch the frontend bundle.
+ */
 
-const getApiKey = () => {
-    if (typeof window !== 'undefined' && (window as any)._env_?.VITE_GROQ_API_KEY) {
-        return (window as any)._env_.VITE_GROQ_API_KEY;
-    }
-    return import.meta.env.VITE_GROQ_API_KEY || '';
-};
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-export const getGroqClient = () => {
-    const API_KEY = getApiKey();
-    if (!API_KEY) {
-        console.warn("Groq API Key missing. Please set VITE_GROQ_API_KEY.");
-    }
-    return new Groq({ apiKey: API_KEY, dangerouslyAllowBrowser: true });
-};
-
-export async function parseResumeText(text: string) {
-    const groq = getGroqClient();
-
-    const completion = await groq.chat.completions.create({
-        messages: [
-            {
-                role: "system",
-                content: "You are an expert resume parser. You MUST output a valid JSON object. Do not include any explanation or markdown formatting."
-            },
-            {
-                role: "user",
-                content: `You will be given resume text. Extract details into this exact JSON structure:
-        {
-          "name": "Full Name",
-          "email": "email@example.com",
-          "skills": ["Skill1", "Skill2"],
-          "experience": "Summary of work history...",
-          "education": "Summary of education...",
-          "projects": "Summary of projects...",
-          "githubUrl": "github.com/profile",
-          "bio": "Professional summary",
-          "age": 0
-        }
-
-        Rules:
-        - If a field is not found, use a reasonable empty value (e.g. "" or []).
-        - "skills" MUST be an array of strings.
-        - "experience" should be a substantial paragraph if data exists.
-        
-        Resume Text:
-        ${text}`
-            }
-        ],
-        model: "llama-3.3-70b-versatile",
-        temperature: 0,
-        response_format: { type: "json_object" }
-    });
-
-    const content = completion.choices[0]?.message?.content;
-    if (!content) throw new Error("No content received from Groq");
-
-    // Clean up markdown code blocks if present
-    const cleanedContent = content.replace(/```json\n?|```/g, '').trim();
-
-    // Attempt to extract purely the JSON part if there's conversational text
-    const jsonStart = cleanedContent.indexOf('{');
-    const jsonEnd = cleanedContent.lastIndexOf('}');
-
-    let finalJsonString = cleanedContent;
-    if (jsonStart !== -1 && jsonEnd !== -1) {
-        finalJsonString = cleanedContent.substring(jsonStart, jsonEnd + 1);
-    }
-
-    try {
-        return JSON.parse(finalJsonString);
-    } catch (e) {
-        console.error("Failed to parse Groq JSON:", finalJsonString);
-        throw new Error("Invalid JSON format from AI");
-    }
-}
-
-// Interview conversation with Groq
+// Interview conversation types
 export interface ChatMessage {
     role: 'system' | 'user' | 'assistant';
     content: string;
+}
+
+export async function parseResumeText(text: string) {
+    const response = await fetch(`${API_URL}/parse-resume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(errorData.detail || 'Failed to parse resume');
+    }
+
+    return response.json();
 }
 
 export async function chatWithInterviewer(
     messages: ChatMessage[],
     systemPrompt: string
 ): Promise<string> {
-    const groq = getGroqClient();
-
-    const fullMessages: ChatMessage[] = [
-        { role: 'system', content: systemPrompt },
-        ...messages
-    ];
-
-    const completion = await groq.chat.completions.create({
-        messages: fullMessages,
-        model: "llama-3.3-70b-versatile",
-        temperature: 0.7,
-        max_tokens: 500,
+    const response = await fetch(`${API_URL}/interview/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            messages: messages.filter(m => m.role !== 'system'),
+            system_prompt: systemPrompt,
+        }),
     });
 
-    return completion.choices[0]?.message?.content || "I apologize, I didn't catch that. Could you please repeat?";
+    if (!response.ok) {
+        throw new Error('Failed to get interviewer response');
+    }
+
+    // Consume the entire SSE stream and concatenate
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+
+    if (reader) {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+            for (const line of lines) {
+                if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+                    try {
+                        const parsed = JSON.parse(line.slice(6));
+                        if (parsed.token) fullText += parsed.token;
+                    } catch { /* skip malformed lines */ }
+                }
+            }
+        }
+    }
+
+    return fullText || "I apologize, I didn't catch that. Could you please repeat?";
 }
 
 export async function* streamChatWithInterviewer(
     messages: ChatMessage[],
     systemPrompt: string
 ): AsyncGenerator<string, void, unknown> {
-    const groq = getGroqClient();
-
-    const fullMessages: ChatMessage[] = [
-        { role: 'system', content: systemPrompt },
-        ...messages
-    ];
-
-    const stream = await groq.chat.completions.create({
-        messages: fullMessages,
-        model: "llama-3.3-70b-versatile",
-        temperature: 0.7,
-        max_tokens: 500,
-        stream: true,
+    const response = await fetch(`${API_URL}/interview/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            messages: messages.filter(m => m.role !== 'system'),
+            system_prompt: systemPrompt,
+        }),
     });
 
-    for await (const chunk of stream) {
-        const content = chunk.choices[0]?.delta?.content || '';
-        if (content) {
-            yield content;
+    if (!response.ok) {
+        throw new Error('Failed to stream interviewer response');
+    }
+
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (!reader) return;
+
+    let buffer = '';
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        // Keep the last potentially incomplete line in the buffer
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+            if (line.startsWith('data: [DONE]')) return;
+            if (line.startsWith('data: ')) {
+                try {
+                    const parsed = JSON.parse(line.slice(6));
+                    if (parsed.token) yield parsed.token;
+                    if (parsed.error) throw new Error(parsed.error);
+                } catch (e) {
+                    if (e instanceof Error && e.message !== 'Unexpected end of JSON input') {
+                        // Re-throw real errors, skip parse failures from partial chunks
+                        if (!line.slice(6).trim()) continue;
+                    }
+                }
+            }
         }
     }
 }
 
-// Interview analysis with Groq
+// Interview analysis via backend
 export async function analyzeInterview(
     transcription: string[],
     role: string,
     company: string
 ) {
-    const groq = getGroqClient();
-    const transcriptText = transcription.join('\n');
-
-    const completion = await groq.chat.completions.create({
-        messages: [
-            {
-                role: "system",
-                content: "You are an expert interview coach. Analyze interviews and provide structured feedback in JSON format only."
-            },
-            {
-                role: "user",
-                content: `Analyze the following interview transcript between an AI Interviewer and a Candidate for a ${role} position at ${company}. 
-    
-Transcript:
-${transcriptText}
-
-Provide evaluation in this exact JSON format:
-{
-  "overallScore": <number 1-100>,
-  "categories": [
-    {"category": "Communication", "score": <number>, "fullMark": 100},
-    {"category": "Technical Knowledge", "score": <number>, "fullMark": 100},
-    {"category": "Problem Solving", "score": <number>, "fullMark": 100},
-    {"category": "Cultural Fit", "score": <number>, "fullMark": 100},
-    {"category": "Confidence", "score": <number>, "fullMark": 100}
-  ],
-  "feedback": ["<specific feedback point 1>", "<specific feedback point 2>", "<specific feedback point 3>"]
-}`
-            }
-        ],
-        model: "llama-3.3-70b-versatile",
-        temperature: 0,
-        response_format: { type: "json_object" }
+    const response = await fetch(`${API_URL}/interview/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcription, role, company }),
     });
 
-    const content = completion.choices[0]?.message?.content;
-    if (!content) throw new Error("No analysis received from Groq");
-
-    try {
-        return JSON.parse(content);
-    } catch (e) {
-        console.error("Failed to parse analysis JSON:", content);
-        // Return default structure on parse failure
-        return {
-            overallScore: 70,
-            categories: [
-                { category: "Communication", score: 70, fullMark: 100 },
-                { category: "Technical Knowledge", score: 70, fullMark: 100 },
-                { category: "Problem Solving", score: 70, fullMark: 100 },
-                { category: "Cultural Fit", score: 70, fullMark: 100 },
-                { category: "Confidence", score: 70, fullMark: 100 }
-            ],
-            feedback: ["Interview completed. Analysis could not be generated."]
-        };
+    if (!response.ok) {
+        throw new Error('Failed to analyze interview');
     }
+
+    return response.json();
 }

@@ -1,8 +1,9 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { UserProfile, InterviewResult } from '../types';
-import { streamChatWithInterviewer, analyzeInterview, ChatMessage } from '../services/groq';
+import { ChatMessage } from '../services/groq';
 import { initPiper, speakWithPiper } from '../services/piper';
+import { useInterviewSession } from '../hooks/useInterviewSession';
 
 interface InterviewRoomProps {
   user: UserProfile;
@@ -28,6 +29,12 @@ const AVATAR_STYLES = [
     icon: 'fa-brain',
     description: 'An insightful pattern-recognition intelligence that probes the depths of soft skills, adaptability, and cognitive flexibility.'
   },
+];
+
+const INTENSITY_MODES = [
+  { id: 'standard', label: 'Standard', multiplier: 1, color: 'var(--text-secondary)' },
+  { id: 'aggressive', label: 'Aggressive', multiplier: 1.5, color: '#F87171' },
+  { id: 'zen', label: 'Zen', multiplier: 0.7, color: '#60A5FA' },
 ];
 
 const AVATAR_COLORS = [
@@ -58,9 +65,19 @@ const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish }) => {
 
   const [selectedStyle, setSelectedStyle] = useState(AVATAR_STYLES[0]);
   const [selectedColor, setSelectedColor] = useState(AVATAR_COLORS[0]);
+  const [selectedIntensity, setSelectedIntensity] = useState(INTENSITY_MODES[0]);
+
+  const {
+    githubData,
+    isGithubLoading,
+    loadGithubContext,
+    streamInterviewerResponse,
+    isAnalyzing: hookIsAnalyzing,
+    runAnalysis,
+  } = useInterviewSession();
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const conversationRef = useRef<ChatMessage[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
@@ -93,6 +110,11 @@ const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish }) => {
       }
     };
     loadPiper();
+
+    // Fetch GitHub Context via hook
+    if (user.githubUrl) {
+      loadGithubContext(user.githubUrl);
+    }
   }, []);
 
   useEffect(() => {
@@ -176,54 +198,61 @@ const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish }) => {
       const questionCount = conversationRef.current.filter(m => m.role === 'assistant').length;
       const totalQuestions = 5;
 
+      const githubContext = githubData.length > 0 
+        ? `\nCandidate's GitHub Projects to reference: ${githubData.map(r => `${r.name} (${r.description || 'No description'})`).join('; ')}`
+        : '';
+
       const systemPrompt = `You are a professional ${selectedStyle.label} interviewer from ${company} conducting a ${role} interview.
+      Intensity Protocol: ${selectedIntensity.label}. (Higher intensity means more critical and challenging follow-ups).
 
 Your Mission:
 - You MUST ask exactly ${totalQuestions} technical/behavioral questions total.
 - Currently on question ${questionCount + 1}/${totalQuestions}.
 - Keep your responses BRIEF (1-2 sentences) + ask your next question.
 - Be conversational and encouraging.
-- Build on previous answers naturally.
+- Build on previous answers naturally.${githubContext}
 - ${questionCount < totalQuestions - 1 ? 'Ask your next question immediately after acknowledging their answer.' : 'This is your FINAL question. After their response, wrap up gracefully.'}
 - Do NOT say "goodbye" or "thank you for your time" until you've asked all ${totalQuestions} questions.
 - Maintain smooth conversation flow without long pauses.`;
-
-      const stream = streamChatWithInterviewer(conversationRef.current, systemPrompt);
 
       let fullResponse = '';
       let currentSentence = '';
 
       setTranscription(prev => [...prev, { sender: 'AI', text: '' }]);
 
-      for await (const chunk of stream) {
-        setIsProcessing(false);
-        fullResponse += chunk;
-        currentSentence += chunk;
+      await streamInterviewerResponse(
+        conversationRef.current,
+        systemPrompt,
+        (chunk) => {
+          setIsProcessing(false);
+          fullResponse += chunk;
+          currentSentence += chunk;
 
-        setTranscription(prev => {
-          const newArr = [...prev];
-          const last = newArr[newArr.length - 1];
-          if (last.sender === 'AI') {
-            last.text = fullResponse;
+          setTranscription(prev => {
+            const newArr = [...prev];
+            const last = newArr[newArr.length - 1];
+            if (last.sender === 'AI') {
+              last.text = fullResponse;
+            }
+            return newArr;
+          });
+        },
+        async (completed) => {
+          if (currentSentence.trim()) {
+            await speakText(currentSentence);
+            currentSentence = '';
           }
-          return newArr;
-        });
+          conversationRef.current.push({ role: 'assistant', content: completed });
 
-        // Basic sentence boundary detection
-        if (/[.!?]/.test(chunk) || (currentSentence.length > 50 && /[,;]/.test(chunk))) {
-          await speakText(currentSentence);
-          currentSentence = '';
+          if (recognitionRef.current && isActive) {
+            try { recognitionRef.current.start(); } catch { }
+          }
         }
-      }
+      );
 
+      // Speak remaining sentence fragments that didn't hit a boundary during streaming
       if (currentSentence.trim()) {
         await speakText(currentSentence);
-      }
-
-      conversationRef.current.push({ role: 'assistant', content: fullResponse });
-
-      if (recognitionRef.current && isActive) {
-        try { recognitionRef.current.start(); } catch { }
       }
 
     } catch (error) {
@@ -245,20 +274,20 @@ Your Mission:
         videoRef.current.srcObject = stream;
       }
 
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (!SpeechRecognition) {
+      const SpeechRecognitionCtor = window.SpeechRecognition || (window as unknown as { webkitSpeechRecognition: typeof SpeechRecognition }).webkitSpeechRecognition;
+      if (!SpeechRecognitionCtor) {
         throw new Error('Please use Chrome or Edge for voice features.');
       }
 
-      const recognition = new SpeechRecognition();
+      const recognition = new SpeechRecognitionCtor();
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
       let finalTranscript = '';
-      let silenceTimer: any = null;
+      let silenceTimer: ReturnType<typeof setTimeout> | null = null;
 
-      recognition.onresult = (event: any) => {
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
         if (isSpeakingRef.current) return;
 
         let interimTranscript = '';
@@ -302,10 +331,10 @@ Your Mission:
       await speakText(intro);
       recognition.start();
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
       setIsConnecting(false);
-      alert(err.message || "Microphone access required.");
+      alert(err instanceof Error ? err.message : "Microphone access required.");
     }
   };
 
@@ -326,7 +355,7 @@ Your Mission:
       const transcriptStrings = transcription.map(t =>
         `${t.sender === 'AI' ? 'Interviewer' : 'Candidate'}: ${t.text}`
       );
-      const analysis = await analyzeInterview(transcriptStrings, role, company);
+      const analysis = await runAnalysis(transcriptStrings, role, company);
       const result: InterviewResult = {
         id: Date.now().toString(),
         date: new Date().toISOString(),
@@ -434,20 +463,36 @@ Your Mission:
                   </div>
                 </div>
                 <div>
-                  <label className="label-premium">Visual_System_Theme</label>
-                  <div className="flex items-center justify-center gap-6 p-4 rounded-md bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.05)]">
-                    {AVATAR_COLORS.map(color => (
+                  <label className="label-premium">Interview_Intensity_Matrix</label>
+                  <div className="flex items-center justify-between p-4 rounded-md bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.05)]">
+                    {INTENSITY_MODES.map(mode => (
                       <button
-                        key={color.id}
-                        onClick={() => setSelectedColor(color)}
-                        className={`w-6 h-6 rounded-full transition-all duration-300 border-2 ${selectedColor.id === color.id ? 'border-white scale-125' : 'border-transparent'}`}
-                        style={{ background: color.hex, boxShadow: selectedColor.id === color.id ? color.shadow : 'none' }}
-                      />
+                        key={mode.id}
+                        onClick={() => setSelectedIntensity(mode)}
+                        className={`px-4 py-2 rounded font-mono text-[10px] uppercase tracking-widest transition-all duration-200 ${selectedIntensity.id === mode.id ? 'bg-white text-black font-bold' : 'text-[var(--text-secondary)] hover:text-white'}`}
+                      >
+                        {mode.label}
+                      </button>
                     ))}
                   </div>
                 </div>
               </div>
             </div>
+
+            {githubData.length > 0 && (
+              <div className="mb-8 p-4 rounded bg-[var(--neon-cyan)]/5 border border-[var(--neon-cyan)]/20 animate-pulse">
+                <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-[var(--neon-cyan)] mb-2 flex items-center gap-2">
+                  <i className="fa-brands fa-github"></i> Neural_Context_Loaded: {githubData.length} Repositories Found
+                </p>
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                  {githubData.map(repo => (
+                    <span key={repo.id} className="px-2 py-1 bg-black/40 border border-[rgba(255,255,255,0.1)] text-[var(--text-muted)] text-[8px] font-mono whitespace-nowrap">
+                      {repo.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <button
               onClick={startInterview}

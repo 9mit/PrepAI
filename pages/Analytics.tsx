@@ -2,6 +2,7 @@
 import React, { useMemo } from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { InterviewResult } from '../types';
+import ScoreDisplay from '../components/ScoreDisplay';
 
 const AnalyticsPage: React.FC = () => {
   const history: InterviewResult[] = useMemo(() => {
@@ -17,6 +18,10 @@ const AnalyticsPage: React.FC = () => {
 
   const latestFeedback = history[0]?.feedback || [];
   const latestCategories = history[0]?.categories || [];
+  const latestScore = history[0]?.overallScore || 0;
+
+  // Map the 0-100 overall score to the 1-10,000 scale for display
+  const scaledScore = Math.max(1, Math.min(10000, Math.round(latestScore * 100)));
 
   if (history.length === 0) {
     return (
@@ -42,6 +47,27 @@ const AnalyticsPage: React.FC = () => {
         <h1 className="text-4xl md:text-5xl font-mono font-black uppercase tracking-tighter text-white">Performance Insights</h1>
       </header>
 
+      {/* Score Display + Report Download */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <ScoreDisplay score={scaledScore} />
+        <div className="lg:col-span-2 flex flex-col gap-6 justify-center glass-panel p-8 border border-[rgba(255,255,255,0.05)]">
+          <div>
+            <h3 className="font-mono text-sm font-bold uppercase tracking-[0.2em] text-white mb-2">Latest_Session</h3>
+            <p className="font-mono text-xs text-[var(--text-muted)] uppercase tracking-tighter">
+              {history[0]?.role} @ {history[0]?.company} — {new Date(history[0]?.date).toLocaleDateString()}
+            </p>
+          </div>
+          <a
+            href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/session/report?session_id=${history[0]?.id}`}
+            download
+            className="btn-primary py-4 text-center font-mono text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3"
+            style={{ background: 'var(--neon-cyan)', color: '#000' }}
+          >
+            <i className="fa-solid fa-file-pdf"></i>
+            Download_Session_Report
+          </a>
+        </div>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Competency Matrix */}
         <div className="glass-panel p-8 border border-[rgba(255,255,255,0.05)]">

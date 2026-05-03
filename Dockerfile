@@ -19,5 +19,5 @@ RUN npm install -g serve
 # Expose Hugging Face Spaces port
 EXPOSE 7860
 
-# Runtime command: Inject environment variables and start server
-CMD echo "window._env_ = { VITE_GROQ_API_KEY: \"$VITE_GROQ_API_KEY\" };" > ./dist/env-config.js && serve -s dist -l 7860
+# Runtime command: Start the static file server
+CMD serve -s dist -l 7860

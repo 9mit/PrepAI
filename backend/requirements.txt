@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+groq
+pydantic
+pydantic-settings
+redis
+reportlab
+python-dotenv
+python-multipart
+httpx

@@ -35,7 +35,7 @@ export interface FileContent {
 
 // Simple in-memory cache to avoid rate limits on repeated clicks
 const repoCache = new Map<string, GithubRepo[]>();
-const contentCache = new Map<string, any>();
+const contentCache = new Map<string, GithubFile[] | string>();
 
 export async function fetchUserRepos(username: string): Promise<GithubRepo[]> {
     if (repoCache.has(username)) return repoCache.get(username)!;
@@ -58,7 +58,7 @@ export async function fetchUserRepos(username: string): Promise<GithubRepo[]> {
 
 export async function fetchRepoContents(username: string, repo: string, path: string = ''): Promise<GithubFile[]> {
     const cacheKey = `${username}/${repo}/${path}`;
-    if (contentCache.has(cacheKey)) return contentCache.get(cacheKey);
+    if (contentCache.has(cacheKey)) return contentCache.get(cacheKey) as GithubFile[];
 
     try {
         const response = await fetch(`${GITHUB_API_BASE}/repos/${username}/${repo}/contents/${path}`);
@@ -76,7 +76,7 @@ export async function fetchRepoContents(username: string, repo: string, path: st
 }
 
 export async function fetchFileContent(url: string): Promise<string> {
-    if (contentCache.has(url)) return contentCache.get(url);
+    if (contentCache.has(url)) return contentCache.get(url) as string;
 
     try {
         const response = await fetch(url);

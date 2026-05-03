@@ -26,6 +26,11 @@ build
 .env.production.local
 .env.production
 
+# Backend
+__pycache__/
+*.pyc
+redis_data/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
