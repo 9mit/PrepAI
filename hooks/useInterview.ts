@@ -41,7 +41,7 @@ export const useInterview = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/session/start`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/session/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role, session_id: sessionId }),
@@ -106,8 +106,11 @@ export const useInterview = () => {
         formData.append('audio_file', audioBlob, 'recording.webm');
         
         try {
-          const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/session/evaluate`, {
+          const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/session/evaluate`, {
             method: 'POST',
+            headers: {
+              'X-Session-ID': session.id
+            },
             body: formData,
           });
           
@@ -132,7 +135,7 @@ export const useInterview = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/session/next`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/session/next`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: session.id }),
@@ -151,7 +154,7 @@ export const useInterview = () => {
   
   const getReportUrl = () => {
     if (!session) return null;
-    return `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/session/report?session_id=${session.id}`;
+    return `${import.meta.env.VITE_API_URL || ''}/session/report?session_id=${session.id}`;
   };
 
   return {

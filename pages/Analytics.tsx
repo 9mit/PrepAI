@@ -58,7 +58,7 @@ const AnalyticsPage: React.FC = () => {
             </p>
           </div>
           <a
-            href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/session/report?session_id=${history[0]?.id}`}
+            href={`${import.meta.env.VITE_API_URL || ''}/session/report?session_id=${history[0]?.id}`}
             download
             className="btn-primary py-4 text-center font-mono text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3"
             style={{ background: 'var(--neon-cyan)', color: '#000' }}

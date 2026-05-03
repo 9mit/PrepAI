@@ -6,7 +6,7 @@
  * The Groq SDK and API key never touch the frontend bundle.
  */
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 // Interview conversation types
 export interface ChatMessage {

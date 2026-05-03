@@ -2,7 +2,7 @@ import os
 import json
 import logging
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from dotenv import load_dotenv
@@ -58,12 +58,9 @@ async def start_session(request: StartSessionRequest):
 
 @app.post("/session/evaluate", response_model=EvaluateAnswerResponse)
 async def evaluate_turn(
-    session_id: str = Form(...),
-    question_text: str = Form(...),
-    latency_seconds: float = Form(30.0),
-    filler_ratio: float = Form(0.0),
-    audio_file: Optional[UploadFile] = File(None),
-    text_answer: Optional[str] = Form(None)
+    session_id: str = Header(..., alias="X-Session-ID"),
+    request: EvaluateAnswerRequest = Depends(),
+    audio_file: Optional[UploadFile] = File(None)
 ):
     """
     Evaluates the answer (either audio or text) and decides the next action.
@@ -71,13 +68,8 @@ async def evaluate_turn(
     All fields are validated via Pydantic-backed Form parameters.
     """
     # Validate via the Pydantic model (structural check)
-    _validated = EvaluateAnswerRequest(
-        session_id=session_id,
-        question_text=question_text,
-        text_answer=text_answer,
-        latency_seconds=latency_seconds,
-        filler_ratio=filler_ratio
-    )
+    _validated = request
+    _validated.session_id = session_id
 
     session = await get_session(_validated.session_id)
     if not session:
