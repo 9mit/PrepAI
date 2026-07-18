@@ -89,7 +89,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response: Response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers.setdefault(
             "Permissions-Policy",
@@ -105,7 +104,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "connect-src 'self' https://api.github.com https://huggingface.co https://*.hf.space http://localhost:* http://127.0.0.1:*; "
             "media-src 'self' blob:; "
             "worker-src 'self' blob:; "
-            "frame-ancestors 'none'; "
+            "frame-ancestors 'self' https://huggingface.co https://*.huggingface.co; "
             "base-uri 'self'; "
             "form-action 'self'",
         )
