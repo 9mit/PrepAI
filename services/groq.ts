@@ -1,21 +1,19 @@
-
 /**
  * groq.ts — Backend API proxy layer.
  *
- * All LLM calls now route through the FastAPI backend.
+ * All LLM calls route through the FastAPI backend with a guest JWT.
  * The Groq SDK and API key never touch the frontend bundle.
  */
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+import { apiFetch } from './apiClient';
 
-// Interview conversation types
 export interface ChatMessage {
     role: 'system' | 'user' | 'assistant';
     content: string;
 }
 
 export async function parseResumeText(text: string) {
-    const response = await fetch(`${API_URL}/parse-resume`, {
+    const response = await apiFetch('/parse-resume', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
@@ -23,7 +21,9 @@ export async function parseResumeText(text: string) {
 
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(errorData.detail || 'Failed to parse resume');
+        throw new Error(
+            typeof errorData.detail === 'string' ? errorData.detail : 'Failed to parse resume'
+        );
     }
 
     return response.json();
@@ -33,7 +33,7 @@ export async function chatWithInterviewer(
     messages: ChatMessage[],
     systemPrompt: string
 ): Promise<string> {
-    const response = await fetch(`${API_URL}/interview/chat`, {
+    const response = await apiFetch('/interview/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -46,7 +46,6 @@ export async function chatWithInterviewer(
         throw new Error('Failed to get interviewer response');
     }
 
-    // Consume the entire SSE stream and concatenate
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
     let fullText = '';
@@ -60,7 +59,7 @@ export async function chatWithInterviewer(
             for (const line of lines) {
                 if (line.startsWith('data: ') && line !== 'data: [DONE]') {
                     try {
-                        const parsed = JSON.parse(line.slice(6));
+                        const parsed = JSON.parse(line.slice(6)) as { token?: string };
                         if (parsed.token) fullText += parsed.token;
                     } catch { /* skip malformed lines */ }
                 }
@@ -75,7 +74,7 @@ export async function* streamChatWithInterviewer(
     messages: ChatMessage[],
     systemPrompt: string
 ): AsyncGenerator<string, void, unknown> {
-    const response = await fetch(`${API_URL}/interview/chat`, {
+    const response = await apiFetch('/interview/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -100,20 +99,19 @@ export async function* streamChatWithInterviewer(
         buffer += decoder.decode(value, { stream: true });
 
         const lines = buffer.split('\n');
-        // Keep the last potentially incomplete line in the buffer
         buffer = lines.pop() || '';
 
         for (const line of lines) {
             if (line.startsWith('data: [DONE]')) return;
             if (line.startsWith('data: ')) {
                 try {
-                    const parsed = JSON.parse(line.slice(6));
+                    const parsed = JSON.parse(line.slice(6)) as { token?: string; error?: string };
                     if (parsed.token) yield parsed.token;
                     if (parsed.error) throw new Error(parsed.error);
                 } catch (e) {
-                    if (e instanceof Error && e.message !== 'Unexpected end of JSON input') {
-                        // Re-throw real errors, skip parse failures from partial chunks
-                        if (!line.slice(6).trim()) continue;
+                    if (e instanceof Error && e.message === 'Stream failed') throw e;
+                    if (e instanceof Error && e.message && !e.message.includes('JSON') && e.message !== 'Unexpected end of JSON input') {
+                        throw e;
                     }
                 }
             }
@@ -121,13 +119,12 @@ export async function* streamChatWithInterviewer(
     }
 }
 
-// Interview analysis via backend
 export async function analyzeInterview(
     transcription: string[],
     role: string,
     company: string
 ) {
-    const response = await fetch(`${API_URL}/interview/analyze`, {
+    const response = await apiFetch('/interview/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcription, role, company }),

@@ -1,44 +1,108 @@
 import json
+import time
 import redis.asyncio as redis
 import os
 import logging
-from typing import Optional
+from typing import Optional, Dict, Tuple
 from models import SessionState
 
 logger = logging.getLogger(__name__)
 
-# Initialize Redis client. We will configure it from env later
 redis_client = None
+_redis_available: Optional[bool] = None
+
+# In-memory fallback: session_id -> (SessionState JSON, expires_at epoch)
+_memory_store: Dict[str, Tuple[str, float]] = {}
+SESSION_TTL_SEC = 3600
+
 
 async def init_redis():
-    global redis_client
+    global redis_client, _redis_available
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    redis_client = redis.from_url(redis_url, decode_responses=True)
+    try:
+        redis_client = redis.from_url(redis_url, decode_responses=True)
+        await redis_client.ping()
+        _redis_available = True
+        logger.info("Redis connected")
+    except Exception as e:
+        logger.warning("Redis unavailable (%s); using in-memory session store", type(e).__name__)
+        redis_client = None
+        _redis_available = False
+
+
+def _memory_get(session_id: str) -> Optional[str]:
+    entry = _memory_store.get(session_id)
+    if not entry:
+        return None
+    data, expires_at = entry
+    if time.time() > expires_at:
+        _memory_store.pop(session_id, None)
+        return None
+    return data
+
+
+def _memory_set(session_id: str, data: str) -> None:
+    _memory_store[session_id] = (data, time.time() + SESSION_TTL_SEC)
+
 
 async def get_session(session_id: str) -> Optional[SessionState]:
-    if not redis_client:
+    global _redis_available
+    if _redis_available is None:
         await init_redis()
-    
-    data = await redis_client.get(f"session:{session_id}")
-    if data:
-        try:
-            return SessionState.model_validate_json(data)
-        except Exception as e:
-            logger.error(f"Error parsing session state: {e}")
-            return None
-    return None
 
-async def save_session(session_state: SessionState):
-    if not redis_client:
-        await init_redis()
-        
+    raw: Optional[str] = None
+    if _redis_available and redis_client:
+        try:
+            raw = await redis_client.get(f"session:{session_id}")
+        except Exception as e:
+            logger.warning("Redis get failed (%s); falling back to memory", type(e).__name__)
+            _redis_available = False
+            raw = _memory_get(session_id)
+    else:
+        raw = _memory_get(session_id)
+
+    if not raw:
+        return None
     try:
-        data = session_state.model_dump_json()
-        await redis_client.setex(f"session:{session_state.session_id}", 3600, data)
+        return SessionState.model_validate_json(raw)
     except Exception as e:
-        logger.error(f"Error saving session state: {e}")
+        logger.error("Error parsing session state: %s", e)
+        return None
+
+
+async def save_session(session_state: SessionState) -> None:
+    global _redis_available
+    if _redis_available is None:
+        await init_redis()
+
+    data = session_state.model_dump_json()
+    if _redis_available and redis_client:
+        try:
+            await redis_client.setex(f"session:{session_state.session_id}", SESSION_TTL_SEC, data)
+            return
+        except Exception as e:
+            logger.warning("Redis save failed (%s); using memory", type(e).__name__)
+            _redis_available = False
+
+    _memory_set(session_state.session_id, data)
+
 
 async def create_session(session_id: str, target_role: str) -> SessionState:
     session = SessionState(session_id=session_id, target_role=target_role)
     await save_session(session)
     return session
+
+
+async def ping_redis() -> bool:
+    global _redis_available
+    try:
+        if _redis_available is None:
+            await init_redis()
+        if _redis_available and redis_client:
+            return bool(await redis_client.ping())
+        # In-memory mode still allows sessions — report degraded but usable
+        return False
+    except Exception as e:
+        logger.error("Redis ping failed: %s", e)
+        _redis_available = False
+        return False

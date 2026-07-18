@@ -36,9 +36,6 @@ export const initPiper = async (config?: PiperConfig) => {
 
     isInitializing = true;
     try {
-        console.log("Initializing Piper TTS...");
-
-        // Custom progress callback for model download
         const handleProgress = (progress: PiperDownloadProgress) => {
             if (config?.onDownloadProgress && progress.total) {
                 const percent = Math.round((progress.loaded / progress.total) * 100);
@@ -46,9 +43,6 @@ export const initPiper = async (config?: PiperConfig) => {
             }
         };
 
-        // Initialize the TTS engine with the specific model
-        // NOTE: This library handles the worker creation and ONNX runtime internally
-        // The library does not ship proper TS types, so we use a type assertion
         const TTS = tts as unknown as { PiperTTS: new (opts: { model: string; config: string; progress: (p: PiperDownloadProgress) => void }) => Promise<PiperInstance> };
         piperInstance = await new TTS.PiperTTS({
             model: VOICE_MODEL_URL,
@@ -56,12 +50,10 @@ export const initPiper = async (config?: PiperConfig) => {
             progress: handleProgress
         });
 
-        console.log("Piper TTS Initialized");
         if (config?.onInit) config.onInit();
         return piperInstance;
 
     } catch (error) {
-        console.error("Failed to initialize Piper TTS:", error);
         if (config?.onError) config.onError(error instanceof Error ? error : new Error(String(error)));
         throw error;
     } finally {
@@ -86,8 +78,7 @@ export const speakWithPiper = async (text: string, onStart?: () => void, onEnd?:
         });
 
     } catch (error) {
-        console.error("Piper TTS speak error:", error);
-        if (onEnd) onEnd(); // Ensure cleanup happens
+        if (onEnd) onEnd();
         throw error;
     }
 };

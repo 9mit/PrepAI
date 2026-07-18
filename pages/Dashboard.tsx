@@ -62,13 +62,14 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
             <span className="text-[10px] font-mono font-bold uppercase tracking-[0.4em] text-[var(--neon-cyan)] px-2 py-0.5 border border-[var(--neon-cyan)]/20 bg-[var(--neon-cyan)]/5">System.Active</span>
             <span className="text-[10px] font-mono font-bold uppercase tracking-[0.4em] text-[var(--text-muted)]">User: {user.name.split(' ')[0]}</span>
           </div>
-          <h1 className="text-5xl md:text-6xl font-black uppercase tracking-tighter text-white font-mono">
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-black uppercase tracking-tighter text-white font-mono">
             Dashboard<span className="text-[var(--neon-emerald)]">.io</span>
           </h1>
         </div>
         <button
+          type="button"
           onClick={onStartInterview}
-          className="btn-primary flex items-center gap-4 py-5 px-10 text-base"
+          className="btn-primary flex items-center justify-center gap-4 py-5 px-8 sm:px-10 text-base w-full md:w-auto"
           style={{ background: 'var(--neon-emerald)', color: '#000' }}
         >
           <i className="fa-solid fa-bolt-lightning text-lg"></i>
@@ -128,19 +129,19 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
 
             <div className="p-2">
               {history.length > 0 ? history.slice(0, 5).map((session) => (
-                <div key={session.id} className="flex items-center justify-between p-6 rounded-sm transition-all duration-200 hover:bg-[var(--bg-accent)] group border-b border-[rgba(255,255,255,0.03)] last:border-0">
-                  <div className="flex items-center gap-6">
-                    <div className="w-12 h-12 border border-[rgba(255,255,255,0.05)] flex items-center justify-center transition-all duration-200 group-hover:border-[var(--neon-cyan)] bg-[var(--bg-surface)]">
+                <div key={session.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 sm:p-6 rounded-sm transition-all duration-200 hover:bg-[var(--bg-accent)] group border-b border-[rgba(255,255,255,0.03)] last:border-0">
+                  <div className="flex items-center gap-4 sm:gap-6 min-w-0">
+                    <div className="w-12 h-12 shrink-0 border border-[rgba(255,255,255,0.05)] flex items-center justify-center transition-all duration-200 group-hover:border-[var(--neon-cyan)] bg-[var(--bg-surface)]">
                       <i className="fa-solid fa-code text-sm text-[var(--text-muted)] group-hover:text-[var(--neon-cyan)]"></i>
                     </div>
-                    <div>
-                      <p className="font-mono font-bold text-sm text-white uppercase tracking-tight group-hover:text-[var(--neon-cyan)] transition-colors">{session.role}</p>
-                      <p className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-tighter mt-1">
+                    <div className="min-w-0">
+                      <p className="font-mono font-bold text-sm text-white uppercase tracking-tight group-hover:text-[var(--neon-cyan)] transition-colors truncate">{session.role}</p>
+                      <p className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-tighter mt-1 truncate">
                         {session.company} // {new Date(session.date).toISOString().split('T')[0]}
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-left sm:text-right shrink-0 pl-16 sm:pl-0">
                     <p className="font-mono text-2xl font-black text-white">{session.overallScore.toString().padStart(3, '0')}</p>
                     <p className="text-[8px] font-mono uppercase font-bold tracking-widest text-[var(--text-muted)]">pts_total</p>
                   </div>
@@ -163,14 +164,14 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
             <p className="font-mono text-[9px] mt-1 text-[var(--text-muted)] uppercase tracking-tighter">Skill pattern recognition data</p>
           </div>
 
-          <div className="flex-1 p-6 flex items-center justify-center min-h-[400px]">
+          <div className="flex-1 p-4 sm:p-6 flex items-center justify-center min-h-[320px] sm:min-h-[400px] overflow-hidden">
             {stats.lastCategories.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <RadarChart cx="50%" cy="50%" outerRadius="75%" data={stats.lastCategories}>
+                <RadarChart cx="50%" cy="50%" outerRadius="65%" data={stats.lastCategories}>
                   <PolarGrid stroke="rgba(255, 255, 255, 0.05)" radialLines={true} />
                   <PolarAngleAxis
                     dataKey="category"
-                    tick={{ fill: '#475569', fontSize: 9, fontWeight: 700, fontFamily: 'JetBrains Mono' }}
+                    tick={{ fill: '#475569', fontSize: 8, fontWeight: 700, fontFamily: 'JetBrains Mono' }}
                   />
                   <Radar
                     name="Score"

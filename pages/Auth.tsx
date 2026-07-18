@@ -1,6 +1,10 @@
+/**
+ * Auth page — client-only registration/login with hashed passwords.
+ */
 
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
+import { hashPassword, passwordsMatch, stripPassword, needsRehash } from '../services/authCrypto';
 
 interface AuthPageProps {
   onLogin: (user: UserProfile) => void;
@@ -16,68 +20,86 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const getRegisteredUsers = (): RegisteredUser[] => {
     const data = localStorage.getItem('prep_ai_users');
-    return data ? JSON.parse(data) : [];
+    return data ? JSON.parse(data) as RegisteredUser[] : [];
   };
 
-  const saveUser = (user: RegisteredUser) => {
-    const users = getRegisteredUsers();
-    localStorage.setItem('prep_ai_users', JSON.stringify([...users, user]));
+  const persistUsers = (users: RegisteredUser[]) => {
+    localStorage.setItem('prep_ai_users', JSON.stringify(users));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsSubmitting(true);
 
-    const users = getRegisteredUsers();
+    try {
+      const users = getRegisteredUsers();
 
-    if (isLogin) {
-      const existingUser = users.find(u => u.email === email && u.password === password);
+      if (isLogin) {
+        const existingUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+        if (!existingUser || !(await passwordsMatch(password, existingUser.password))) {
+          setError('AUTH_FAILURE: Check credentials. Redirecting...');
+          setTimeout(() => {
+            setIsLogin(false);
+            setError('');
+          }, 2000);
+          return;
+        }
 
-      if (existingUser) {
-        onLogin(existingUser);
+        // Migrate legacy plaintext / unsalted SHA-256 to PBKDF2
+        if (existingUser.password && needsRehash(existingUser.password)) {
+          existingUser.password = await hashPassword(password);
+          const idx = users.findIndex(u => u.email === existingUser.email);
+          if (idx !== -1) {
+            users[idx] = existingUser;
+            persistUsers(users);
+          }
+        }
+
+        onLogin(stripPassword(existingUser) as UserProfile);
       } else {
-        setError('AUTH_FAILURE: Check credentials. Redirecting...');
-        setTimeout(() => {
-          setIsLogin(false);
-          setError('');
-        }, 2000);
+        const emailExists = users.some(u => u.email.toLowerCase() === email.toLowerCase());
+        if (emailExists) {
+          setError('AUTH_CONFLICT: Email already registered.');
+          return;
+        }
+
+        if (password.length < 6) {
+          setError('AUTH_WEAK: Password must be at least 6 characters.');
+          return;
+        }
+
+        const hashed = await hashPassword(password);
+        const newUser: RegisteredUser = {
+          name: name || email.split('@')[0],
+          email: email,
+          password: hashed,
+          skills: [],
+          education: '',
+          experience: '',
+          projects: '',
+          careerGoals: '',
+          onboarded: false,
+        };
+
+        persistUsers([...users, newUser]);
+        onLogin(stripPassword(newUser) as UserProfile);
       }
-    } else {
-      const emailExists = users.some(u => u.email === email);
-
-      if (emailExists) {
-        setError('AUTH_CONFLICT: Email already registered.');
-        return;
-      }
-
-      const newUser: RegisteredUser = {
-        name: name || email.split('@')[0],
-        email: email,
-        password: password,
-        skills: [],
-        education: '',
-        experience: '',
-        projects: '',
-        careerGoals: '',
-        onboarded: false,
-      };
-
-      saveUser(newUser);
-      onLogin(newUser);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden bg-[var(--bg-deep)]">
-      {/* Subtle Matrix/Developer Focal Glows */}
+    <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 relative overflow-hidden bg-[var(--bg-deep)]">
       <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-[var(--neon-cyan)] opacity-[0.03] blur-[100px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[-10%] left-[-10%] w-[30%] h-[30%] bg-[var(--neon-emerald)] opacity-[0.02] blur-[80px] rounded-full pointer-events-none"></div>
 
       <div className="w-full max-w-sm relative z-10 animate-fadeIn font-mono">
-        {/* Branding Terminal Style */}
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-16 h-16 border border-[var(--neon-emerald)] bg-[var(--neon-emerald)]/5 mb-6 shadow-[var(--glow-emerald)]">
             <i className="fa-solid fa-code text-2xl text-[var(--neon-emerald)]"></i>
@@ -86,8 +108,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
           <p className="text-[9px] font-bold tracking-[0.4em] text-[var(--text-muted)] uppercase">Identity_Verification_Protocol</p>
         </div>
 
-        {/* Auth Box */}
-        <div className="border border-[rgba(255,255,255,0.05)] bg-[var(--bg-surface)] p-10 shadow-2xl">
+        <div className="border border-[rgba(255,255,255,0.05)] bg-[var(--bg-surface)] p-6 sm:p-10 shadow-2xl">
           <div className="mb-10 flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-[var(--neon-cyan)] animate-pulse"></div>
             <h2 className="text-[10px] font-bold uppercase tracking-[0.3em] text-white">
@@ -113,6 +134,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                   placeholder="HOST_NAME"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
                 />
               </div>
             )}
@@ -126,6 +148,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                 placeholder="USER@DOMAIN.LAN"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
               />
             </div>
 
@@ -138,21 +161,24 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                 placeholder="********"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete={isLogin ? 'current-password' : 'new-password'}
+                minLength={isLogin ? 1 : 6}
               />
             </div>
 
             <button
               type="submit"
-              className="btn-primary w-full py-5 text-sm tracking-[0.2em] mt-4"
+              disabled={isSubmitting}
+              className="btn-primary w-full py-5 text-sm tracking-[0.2em] mt-4 disabled:opacity-60"
               style={{ background: 'var(--neon-emerald)', color: '#000' }}
             >
-              {isLogin ? 'Execute_Login()' : 'Commit_Record()'}
+              {isSubmitting ? 'Processing...' : (isLogin ? 'Execute_Login()' : 'Commit_Record()')}
             </button>
           </form>
 
-          {/* Nav Toggle */}
           <div className="mt-10 pt-8 border-t border-[rgba(255,255,255,0.05)] text-center">
             <button
+              type="button"
               onClick={() => { setIsLogin(!isLogin); setError(''); }}
               className="text-[9px] font-bold uppercase tracking-[0.1em] text-[var(--text-muted)] hover:text-white transition-colors"
             >
@@ -165,15 +191,15 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
           </div>
         </div>
 
-        {/* Footer Terminal Info */}
         <div className="mt-12 text-center space-y-4">
           <div className="inline-flex items-center gap-3 px-4 py-2 border border-[rgba(255,255,255,0.05)] bg-black/50">
             <i className="fa-solid fa-lock text-[var(--neon-emerald)] text-[10px]"></i>
-            <span className="text-[8px] font-bold uppercase tracking-[0.3em] text-[var(--text-muted)]">Encrypted_AES_256</span>
+            <span className="text-[8px] font-bold uppercase tracking-[0.3em] text-[var(--text-muted)]">Local_SHA256_Hashed</span>
           </div>
 
           <div className="block pt-8">
             <button
+              type="button"
               onClick={() => {
                 if (confirm('FACTORY_RESET: Confirm deletion of all local identity records?')) {
                   localStorage.clear();

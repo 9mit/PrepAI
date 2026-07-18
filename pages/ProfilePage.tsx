@@ -36,31 +36,42 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUpdateUser }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [completion, setCompletion] = useState(0);
 
-    useEffect(() => {
-        // Calculate profile completion
-        let filled = 0;
-        const fields = ['name', 'email', 'skills', 'experience', 'education', 'projects', 'githubUrl', 'age', 'bio'];
-        const total = fields.length;
+    const safeGithubUrl = (url: string | undefined): string => {
+        if (!url) return '#';
+        const trimmed = url.trim();
+        try {
+            const withProto = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+            const parsed = new URL(withProto);
+            if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return '#';
+            if (!/(^|\.)github\.com$/i.test(parsed.hostname)) return '#';
+            return parsed.toString();
+        } catch {
+            return '#';
+        }
+    };
 
-        fields.forEach(field => {
-            // @ts-ignore
+    useEffect(() => {
+        const fields: (keyof UserProfile)[] = [
+            'name', 'email', 'skills', 'experience', 'education', 'projects', 'githubUrl', 'age', 'bio'
+        ];
+        let filled = 0;
+        fields.forEach((field) => {
             const val = user[field];
             if (Array.isArray(val) ? val.length > 0 : !!val) {
                 filled++;
             }
         });
+        setCompletion(Math.round((filled / fields.length) * 100));
+    }, [user]);
 
-        setCompletion(Math.round((filled / total) * 100));
+    useEffect(() => {
+        setFormData(user);
     }, [user]);
 
     const handleSave = () => {
         onUpdateUser(formData);
         setIsEditing(false);
     };
-
-    const handleCreateAccount = () => {
-        console.log('Account created logic here')
-    }
 
 
     return (
@@ -72,13 +83,14 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUpdateUser }) => {
         >
 
             {/* Header & Completion Banner */}
-            <motion.div variants={itemVariants} className="flex items-end justify-between">
+            <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                 <div>
-                    <h1 className="text-4xl font-bold font-display text-white mb-2">My Profile</h1>
+                    <h1 className="text-3xl sm:text-4xl font-bold font-display text-white mb-2">My Profile</h1>
                     <p className="text-[var(--slate-400)]">Manage your professional identity.</p>
                 </div>
                 {!isEditing && (
                     <button
+                        type="button"
                         onClick={() => setIsEditing(true)}
                         className="px-6 py-3 rounded-xl bg-[rgba(212,175,55,0.1)] border border-[rgba(212,175,55,0.2)] text-[var(--gold-primary)] font-bold uppercase tracking-widest hover:bg-[rgba(212,175,55,0.2)] transition-all"
                     >
@@ -249,7 +261,12 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUpdateUser }) => {
                                         />
                                     </div>
                                 ) : (
-                                    <a href={formData.githubUrl} target="_blank" rel="noreferrer" className="text-sm text-[var(--gold-primary)] hover:underline flex items-center gap-2">
+                                    <a
+                                        href={safeGithubUrl(formData.githubUrl)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-sm text-[var(--gold-primary)] hover:underline flex items-center gap-2"
+                                    >
                                         <i className="fa-brands fa-github"></i> {formData.githubUrl || 'Not linked'}
                                     </a>
                                 )}
@@ -260,15 +277,17 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUpdateUser }) => {
             </div>
 
             {isEditing && (
-                <div className="fixed bottom-8 right-8 z-40 animate-slideUp">
+                <div className="fixed bottom-4 right-4 sm:bottom-8 sm:right-8 z-40 animate-slideUp">
                     <div className="glass-panel p-2 rounded-2xl flex gap-3 shadow-2xl">
                         <button
+                            type="button"
                             onClick={() => { setFormData(user); setIsEditing(false); }}
                             className="px-6 py-3 rounded-xl font-bold text-[var(--slate-300)] hover:text-white transition-colors"
                         >
                             Cancel
                         </button>
                         <button
+                            type="button"
                             onClick={handleSave}
                             className="px-8 py-3 rounded-xl bg-gradient-to-r from-[var(--gold-primary)] to-[var(--gold-dark)] text-[var(--navy-deep)] font-bold shadow-lg transform hover:-translate-y-1 transition-all"
                         >

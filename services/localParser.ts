@@ -42,7 +42,9 @@ export async function extractTextFromPdf(file: File): Promise<string> {
     for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
-        const pageText = textContent.items.map((item: PdfTextItem) => item.str).join(' ');
+        const pageText = textContent.items
+            .map((item) => ('str' in item ? String((item as PdfTextItem).str) : ''))
+            .join(' ');
 
         if (pageText.trim().length > 50) {
             isScanned = false;
@@ -52,8 +54,7 @@ export async function extractTextFromPdf(file: File): Promise<string> {
 
     // If text is minimal, assume it's a scanned document and use OCR
     if (isScanned || fullText.trim().length < 100) {
-        console.log("Detected scanned PDF. Switching to OCR...");
-        fullText = ''; // Reset to strict OCR output
+        fullText = '';
 
         for (let i = 1; i <= pdf.numPages; i++) {
             const page = await pdf.getPage(i);
@@ -64,12 +65,15 @@ export async function extractTextFromPdf(file: File): Promise<string> {
             canvas.width = viewport.width;
 
             if (context) {
-                // @ts-ignore
-                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                const renderTask = page.render({
+                    canvasContext: context,
+                    viewport,
+                    canvas,
+                } as Parameters<typeof page.render>[0]);
+                await renderTask.promise;
                 const { data: { text } } = await Tesseract.recognize(
                     canvas.toDataURL('image/png'),
-                    'eng',
-                    { logger: m => console.log(m) }
+                    'eng'
                 );
                 fullText += text + '\n';
             }

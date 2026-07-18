@@ -9,20 +9,12 @@ export interface InterviewSessionAnalysis {
 }
 
 export const useInterviewSession = () => {
-    // GitHub context state
     const [githubData, setGithubData] = useState<GithubRepo[]>([]);
     const [isGithubLoading, setIsGithubLoading] = useState<boolean>(false);
-
-    // Analysis state
     const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
     const [analysisResult, setAnalysisResult] = useState<InterviewSessionAnalysis | null>(null);
-
-    // Streaming state
     const [isStreaming, setIsStreaming] = useState<boolean>(false);
 
-    /**
-     * Fetches GitHub repos for context enrichment.
-     */
     const loadGithubContext = useCallback(async (githubUrl: string) => {
         if (!githubUrl) return;
         setIsGithubLoading(true);
@@ -32,22 +24,18 @@ export const useInterviewSession = () => {
                 const repos = await fetchUserRepos(username);
                 setGithubData(repos.slice(0, 5));
             }
-        } catch (e) {
-            console.error('Github context fetch failed', e);
+        } catch {
+            // Non-fatal: interview continues without GitHub context
         } finally {
             setIsGithubLoading(false);
         }
     }, []);
 
-    /**
-     * Streams an interviewer response from the backend.
-     * Yields tokens via the provided callback.
-     */
     const streamInterviewerResponse = useCallback(async (
         messages: ChatMessage[],
         systemPrompt: string,
         onToken: (token: string) => void,
-        onComplete: (fullResponse: string) => void,
+        onComplete: (fullResponse: string) => void | Promise<void>,
     ) => {
         setIsStreaming(true);
         let fullResponse = '';
@@ -57,18 +45,12 @@ export const useInterviewSession = () => {
                 fullResponse += chunk;
                 onToken(chunk);
             }
-            onComplete(fullResponse);
-        } catch (error) {
-            console.error('Error in streaming:', error);
-            throw error;
+            await onComplete(fullResponse);
         } finally {
             setIsStreaming(false);
         }
     }, []);
 
-    /**
-     * Analyzes a completed interview and returns the result.
-     */
     const runAnalysis = useCallback(async (
         transcription: string[],
         role: string,
@@ -79,8 +61,7 @@ export const useInterviewSession = () => {
             const analysis = await analyzeInterview(transcription, role, company);
             setAnalysisResult(analysis);
             return analysis;
-        } catch (error) {
-            console.error('Analysis error:', error);
+        } catch {
             const fallback: InterviewSessionAnalysis = {
                 overallScore: 70,
                 categories: [
@@ -100,14 +81,11 @@ export const useInterviewSession = () => {
     }, []);
 
     return {
-        // GitHub
         githubData,
         isGithubLoading,
         loadGithubContext,
-        // Streaming
         isStreaming,
         streamInterviewerResponse,
-        // Analysis
         isAnalyzing,
         analysisResult,
         runAnalysis,

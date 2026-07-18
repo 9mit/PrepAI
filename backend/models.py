@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Optional, Dict, Literal
+
 
 class AnswerScore(BaseModel):
     accuracy: int = Field(..., ge=0, le=100, description="Accuracy of the answer")
@@ -8,14 +9,17 @@ class AnswerScore(BaseModel):
     confidence: int = Field(..., ge=0, le=100, description="Confidence level inferred from the answer content")
     feedback: str = Field(..., description="Brief feedback explaining the scores")
 
+
 class FollowUp(BaseModel):
     type: str = Field(..., description="Type of follow-up: 'challenge', 'probe', or 'hint'")
     question: str = Field(..., description="The follow-up question text")
+
 
 class Question(BaseModel):
     id: str
     text: str
     topic: str
+
 
 class EvaluationRecord(BaseModel):
     question: str
@@ -23,6 +27,7 @@ class EvaluationRecord(BaseModel):
     score: AnswerScore
     latency: float = 30.0
     filler_ratio: float = 0.0
+
 
 class SessionState(BaseModel):
     session_id: str
@@ -33,19 +38,15 @@ class SessionState(BaseModel):
     follow_ups_used: int = 0
     is_completed: bool = False
 
+
 class StartSessionRequest(BaseModel):
-    role: str = Field(..., description="Target role for the interview")
-    session_id: str = Field(..., description="Unique session identifier")
+    role: str = Field(..., description="Target role for the interview", max_length=200)
+    session_id: str = Field(..., description="Unique session identifier", max_length=128)
+
 
 class NextQuestionRequest(BaseModel):
-    session_id: str = Field(..., description="Session to advance")
+    session_id: str = Field(..., description="Session to advance", max_length=128)
 
-class EvaluateAnswerRequest(BaseModel):
-    session_id: str
-    question_text: str
-    text_answer: Optional[str] = None
-    latency_seconds: float = 30.0
-    filler_ratio: float = 0.0
 
 class EvaluateAnswerResponse(BaseModel):
     score: AnswerScore
@@ -53,10 +54,10 @@ class EvaluateAnswerResponse(BaseModel):
     next_action: str = Field(..., description="'advance', 'follow_up', 'retry', or 'end'")
     message: str = Field(..., description="Message for the user")
 
-# ── Frontend-proxy models (moved from client-side Groq calls) ──────────────
 
 class ResumeParseRequest(BaseModel):
-    text: str = Field(..., description="Raw resume text to parse")
+    text: str = Field(..., description="Raw resume text to parse", max_length=80000)
+
 
 class ResumeParseResponse(BaseModel):
     name: str = ""
@@ -69,25 +70,48 @@ class ResumeParseResponse(BaseModel):
     bio: str = ""
     age: int = 0
 
+
 class ChatMessageItem(BaseModel):
-    role: str = Field(..., description="'user' or 'assistant'")
-    content: str
+    role: Literal["user", "assistant"] = Field(..., description="'user' or 'assistant' only")
+    content: str = Field(..., max_length=8000)
+
+    @field_validator("content")
+    @classmethod
+    def content_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("content must not be empty")
+        return v
+
 
 class InterviewChatRequest(BaseModel):
-    messages: List[ChatMessageItem]
-    system_prompt: str
+    messages: List[ChatMessageItem] = Field(..., max_length=80)
+    system_prompt: str = Field(..., max_length=12000)
+
 
 class InterviewAnalyzeCategory(BaseModel):
     category: str
     score: int
     fullMark: int = 100
 
+
 class InterviewAnalyzeRequest(BaseModel):
     transcription: List[str]
-    role: str
-    company: str
+    role: str = Field(..., max_length=200)
+    company: str = Field(..., max_length=200)
+
 
 class InterviewAnalyzeResponse(BaseModel):
     overallScore: int
     categories: List[InterviewAnalyzeCategory]
     feedback: List[str]
+
+
+class InterviewClientReportRequest(BaseModel):
+    """PDF report payload for chat-based interview sessions stored on the client."""
+    session_id: str = Field(..., min_length=1, max_length=128)
+    role: str = Field(..., max_length=200)
+    company: str = Field(..., max_length=200)
+    overall_score: int = Field(..., ge=1, le=100, description="Overall score on 1-100 scale")
+    categories: List[InterviewAnalyzeCategory] = []
+    feedback: List[str] = []
+    date: Optional[str] = None

@@ -5,13 +5,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
     ports:
       - "7860:7860"
     environment:
-      - VITE_API_URL=http://localhost:8000
-    depends_on:
-      - backend
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
+      - REDIS_URL=redis://127.0.0.1:6379
+      - FRONTEND_URL=http://localhost:7860
+      - PREPAI_JWT_SECRET=${PREPAI_JWT_SECRET:-dev-local-jwt-secret-change-me}
+      - DISABLE_DOCS=true
+      - TRUST_PROXY=true
+    # Unified image runs redis + backend + nginx internally
 
+  # Optional split-stack for local API debugging (not used by unified frontend image)
   backend:
     build:
       context: ./backend
@@ -22,16 +30,23 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY}
       - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
       - REDIS_URL=redis://redis:6379
-      - FRONTEND_URL=http://localhost:7860
+      - FRONTEND_URL=http://localhost:3000
     depends_on:
       - redis
+    profiles:
+      - split
 
   redis:
     image: redis:alpine
     ports:
       - "6379:6379"
+    # Prefer binding Redis to localhost only when using split profile:
+    # ports: ["127.0.0.1:6379:6379"]
     volumes:
       - redis_data:/data
+    profiles:
+      - split
+    command: ["redis-server", "--bind", "0.0.0.0", "--protected-mode", "yes"]
 
 volumes:
   redis_data:

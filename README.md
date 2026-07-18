@@ -78,15 +78,22 @@ cp .env.example .env
 
 ### Option A: Docker (Recommended)
 
+**Unified production image** (frontend + FastAPI + Redis behind nginx on port 7860 — same layout as Hugging Face Spaces):
+
 ```bash
-git clone https://github.com/StartVisionAI/PrepAI.git
-cd PrepAI
-cp .env.example .env
-# Edit .env with your API keys
-docker-compose up --build
+cp .env.example .env   # add GROQ_API_KEY
+docker compose up --build
 ```
 
-Frontend at `http://localhost:7860`, Backend at `http://localhost:8000`.
+Open **http://localhost:7860**. Health: **http://localhost:7860/health**.
+
+**Split stack** (API on 8000 + Redis, for local debugging):
+
+```bash
+docker compose --profile split up --build backend redis
+```
+
+Then run the Vite frontend with `VITE_API_URL=http://localhost:8000`.
 
 ### Option B: Manual Setup
 
