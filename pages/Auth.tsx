@@ -42,7 +42,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
       if (isLogin) {
         const existingUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
         if (!existingUser || !(await passwordsMatch(password, existingUser.password))) {
-          setError('AUTH_FAILURE: Check credentials. Redirecting...');
+          setError('Wrong email or password. Try creating an account if you are new.');
           setTimeout(() => {
             setIsLogin(false);
             setError('');
@@ -64,12 +64,12 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
       } else {
         const emailExists = users.some(u => u.email.toLowerCase() === email.toLowerCase());
         if (emailExists) {
-          setError('AUTH_CONFLICT: Email already registered.');
+          setError('That email is already registered. Sign in instead.');
           return;
         }
 
         if (password.length < 6) {
-          setError('AUTH_WEAK: Password must be at least 6 characters.');
+          setError('Password must be at least 6 characters.');
           return;
         }
 
@@ -104,15 +104,15 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
           <div className="inline-flex items-center justify-center w-16 h-16 border border-[var(--neon-emerald)] bg-[var(--neon-emerald)]/5 mb-6 shadow-[var(--glow-emerald)]">
             <i className="fa-solid fa-code text-2xl text-[var(--neon-emerald)]"></i>
           </div>
-          <h1 className="text-3xl font-black uppercase tracking-tighter text-white mb-1">PrepAI<span className="text-[var(--neon-emerald)]">_OS</span></h1>
-          <p className="text-[9px] font-bold tracking-[0.4em] text-[var(--text-muted)] uppercase">Identity_Verification_Protocol</p>
+          <h1 className="text-3xl font-black uppercase tracking-tighter text-white mb-1">PrepAI</h1>
+          <p className="text-[9px] font-bold tracking-[0.4em] text-[var(--text-muted)] uppercase">Interview practice</p>
         </div>
 
         <div className="border border-[rgba(255,255,255,0.05)] bg-[var(--bg-surface)] p-6 sm:p-10 shadow-2xl">
           <div className="mb-10 flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-[var(--neon-cyan)] animate-pulse"></div>
             <h2 className="text-[10px] font-bold uppercase tracking-[0.3em] text-white">
-              {isLogin ? 'Access_Grant_Required' : 'New_User_Registration'}
+              {isLogin ? 'Sign in' : 'Create account'}
             </h2>
           </div>
 
@@ -126,12 +126,12 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
           <form onSubmit={handleSubmit} className="space-y-8">
             {!isLogin && (
               <div className="space-y-3">
-                <label className="label-premium">User_Full_Name</label>
+                <label className="label-premium">Full name</label>
                 <input
                   type="text"
                   required
                   className="input-premium"
-                  placeholder="HOST_NAME"
+                  placeholder="Your name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   autoComplete="name"
@@ -140,12 +140,12 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
             )}
 
             <div className="space-y-3">
-              <label className="label-premium">Host_Email_Uplink</label>
+              <label className="label-premium">Email</label>
               <input
                 type="email"
                 required
                 className="input-premium"
-                placeholder="USER@DOMAIN.LAN"
+                placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
@@ -153,7 +153,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
             </div>
 
             <div className="space-y-3">
-              <label className="label-premium">Credential_Key</label>
+              <label className="label-premium">Password</label>
               <input
                 type="password"
                 required
@@ -172,7 +172,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
               className="btn-primary w-full py-5 text-sm tracking-[0.2em] mt-4 disabled:opacity-60"
               style={{ background: 'var(--neon-emerald)', color: '#000' }}
             >
-              {isSubmitting ? 'Processing...' : (isLogin ? 'Execute_Login()' : 'Commit_Record()')}
+              {isSubmitting ? 'Please wait…' : (isLogin ? 'Sign in' : 'Create account')}
             </button>
           </form>
 
@@ -183,9 +183,9 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
               className="text-[9px] font-bold uppercase tracking-[0.1em] text-[var(--text-muted)] hover:text-white transition-colors"
             >
               {isLogin ? (
-                <>New_Host? <span className="text-[var(--neon-cyan)] underline underline-offset-4 tracking-widest ml-1">Create_Account</span></>
+                <>New here? <span className="text-[var(--neon-cyan)] underline underline-offset-4 tracking-widest ml-1">Create account</span></>
               ) : (
-                <>Existing_Record? <span className="text-[var(--neon-cyan)] underline underline-offset-4 tracking-widest ml-1">Sign_In</span></>
+                <>Already have an account? <span className="text-[var(--neon-cyan)] underline underline-offset-4 tracking-widest ml-1">Sign in</span></>
               )}
             </button>
           </div>
@@ -194,21 +194,21 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
         <div className="mt-12 text-center space-y-4">
           <div className="inline-flex items-center gap-3 px-4 py-2 border border-[rgba(255,255,255,0.05)] bg-black/50">
             <i className="fa-solid fa-lock text-[var(--neon-emerald)] text-[10px]"></i>
-            <span className="text-[8px] font-bold uppercase tracking-[0.3em] text-[var(--text-muted)]">Local_SHA256_Hashed</span>
+            <span className="text-[8px] font-bold uppercase tracking-[0.3em] text-[var(--text-muted)]">Password stored securely on this device</span>
           </div>
 
           <div className="block pt-8">
             <button
               type="button"
               onClick={() => {
-                if (confirm('FACTORY_RESET: Confirm deletion of all local identity records?')) {
+                if (confirm('Clear all local PrepAI data on this device?')) {
                   localStorage.clear();
                   window.location.reload();
                 }
               }}
               className="text-[8px] uppercase font-bold tracking-[0.4em] text-[var(--text-muted)] hover:text-red-500 transition-colors opacity-40 hover:opacity-100"
             >
-              [!] Purge_Application_State
+              Clear local data
             </button>
           </div>
         </div>

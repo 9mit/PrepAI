@@ -1,9 +1,34 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { UserProfile, InterviewResult } from '../types';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { UserProfile, InterviewResult, InterviewContext } from '../types';
 import { ChatMessage } from '../services/groq';
-import { initPiper, speakWithPiper } from '../services/piper';
 import { useInterviewSession } from '../hooks/useInterviewSession';
 import { apiFetch, ensureAccessToken } from '../services/apiClient';
+import { INTERVIEW_FIELDS, COMPANY_STYLES, INTERVIEW_MODES } from '../constants';
+import {
+  buildResumeSnippet,
+  truncateJd,
+  persistInterviewPrefs,
+  readPrefillFromStorage,
+} from '../services/interviewContext';
+import { DOMAIN_PACKS, FIELD_TO_PACK } from '../services/domainPacks';
+import { estimateFillerRatio, estimateSpeakingConfidence, paceToRate, SpeechPace } from '../services/voiceUtils';
+import { recordPracticeActivity } from '../services/growth';
+import { upsertSeat } from '../services/templates';
+import { buildInterviewerSystemPrompt } from '../services/prompts/interviewer';
+import { stripControlChars } from '../services/sanitize';
+import { track } from '../services/telemetry';
+import InterviewSetupForm from '../components/interview/InterviewSetupForm';
+import InterviewActiveView from '../components/interview/InterviewActiveView';
+import {
+  AVATAR_STYLES,
+  AVATAR_COLORS,
+  INTENSITY_MODES,
+  TOTAL_QUESTIONS_DEFAULT,
+  InterviewFieldId,
+  CompanyStyleId,
+  InterviewModeId,
+  TurnState,
+} from '../components/interview/interviewConstants';
 
 interface SpeechRecognitionResultLike {
   readonly isFinal: boolean;
@@ -31,9 +56,8 @@ type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
 interface InterviewRoomProps {
   user: UserProfile;
   onFinish: () => void;
+  onBack: () => void;
 }
-
-type TurnState = 'idle' | 'listening' | 'processing' | 'speaking';
 
 interface EvaluateApiResponse {
   next_action: string;
@@ -42,43 +66,7 @@ interface EvaluateApiResponse {
   score?: { accuracy: number; depth: number; clarity: number; confidence: number; feedback: string };
 }
 
-const TOTAL_QUESTIONS = 5;
-
-const AVATAR_STYLES = [
-  {
-    id: 'robot',
-    label: 'Tech Bot',
-    icon: 'fa-robot',
-    description: 'A highly analytical neural architect, specializing in code precision, architectural patterns, and systematic problem-solving.'
-  },
-  {
-    id: 'professional',
-    label: 'Executive',
-    icon: 'fa-user-tie',
-    description: 'A direct and authoritative industry leader, focused on high-level strategy, cultural alignment, and measurable business impact.'
-  },
-  {
-    id: 'brain',
-    label: 'Neural Core',
-    icon: 'fa-brain',
-    description: 'An insightful pattern-recognition intelligence that probes the depths of soft skills, adaptability, and cognitive flexibility.'
-  },
-];
-
-const INTENSITY_MODES = [
-  { id: 'standard', label: 'Standard', multiplier: 1, color: 'var(--text-secondary)' },
-  { id: 'aggressive', label: 'Aggressive', multiplier: 1.5, color: '#F87171' },
-  { id: 'zen', label: 'Zen', multiplier: 0.7, color: '#60A5FA' },
-];
-
-const AVATAR_COLORS = [
-  { id: 'emerald', label: 'Emerald', hex: '#10B981', bg: 'bg-emerald-500', shadow: '0 0 20px rgba(16, 185, 129, 0.4)', glow: 'rgba(16,185,129,0.8)' },
-  { id: 'cyan', label: 'Cyan', hex: '#06B6D4', bg: 'bg-cyan-500', shadow: '0 0 20px rgba(6, 182, 212, 0.4)', glow: 'rgba(6,182,212,0.8)' },
-  { id: 'orange', label: 'Orange', hex: '#F97316', bg: 'bg-orange-500', shadow: '0 0 20px rgba(249, 115, 22, 0.4)', glow: 'rgba(249,115,22,0.8)' },
-  { id: 'violet', label: 'Violet', hex: '#8B5CF6', bg: 'bg-violet-500', shadow: '0 0 20px rgba(139, 92, 246, 0.4)', glow: 'rgba(139,92,246,0.8)' },
-];
-
-const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish }) => {
+const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish, onBack }) => {
   const [isActive, setIsActive] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -93,12 +81,110 @@ const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish }) => {
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [usePiper, setUsePiper] = useState(false);
 
-  const [role, setRole] = useState(localStorage.getItem('last_target_role') || 'Senior Software Engineer');
-  const [company, setCompany] = useState(localStorage.getItem('last_target_company') || 'Google');
+  const [setupError, setSetupError] = useState('');
+  const [role, setRole] = useState(localStorage.getItem('last_target_role') || 'Product Manager');
+  const [company, setCompany] = useState(localStorage.getItem('last_target_company') || '');
+  const [interviewField, setInterviewField] = useState<InterviewFieldId>(
+    (localStorage.getItem('last_interview_field') as InterviewFieldId) || 'business'
+  );
+  const [jobDescription, setJobDescription] = useState(localStorage.getItem('last_job_description') || '');
+  const [useProfileResume, setUseProfileResume] = useState(true);
+  const [resumePaste, setResumePaste] = useState('');
+  const [companyStyle, setCompanyStyle] = useState<CompanyStyleId>(
+    (localStorage.getItem('last_company_style') as CompanyStyleId) || 'product'
+  );
+  const [interviewMode, setInterviewMode] = useState<InterviewModeId>(
+    (localStorage.getItem('last_interview_mode') as InterviewModeId) || 'behavioral'
+  );
+  const [domainPackId, setDomainPackId] = useState(
+    localStorage.getItem('last_domain_pack') || FIELD_TO_PACK['business'] || 'consulting'
+  );
+  const [speechPace, setSpeechPace] = useState<SpeechPace>('normal');
+  const [liveConfidence, setLiveConfidence] = useState<number | null>(null);
+  const topicsCoveredRef = useRef<string[]>([]);
 
   const [selectedStyle, setSelectedStyle] = useState(AVATAR_STYLES[0]);
   const [selectedColor, setSelectedColor] = useState(AVATAR_COLORS[0]);
   const [selectedIntensity, setSelectedIntensity] = useState(INTENSITY_MODES[0]);
+
+  const modeMeta = useMemo(
+    () => INTERVIEW_MODES.find((m) => m.id === interviewMode) || INTERVIEW_MODES[1],
+    [interviewMode]
+  );
+  const styleMeta = useMemo(
+    () => COMPANY_STYLES.find((s) => s.id === companyStyle) || COMPANY_STYLES[0],
+    [companyStyle]
+  );
+  const totalQuestions = modeMeta.questionCount || TOTAL_QUESTIONS_DEFAULT;
+
+  useEffect(() => {
+    const prefill = readPrefillFromStorage();
+    if (prefill.field && INTERVIEW_FIELDS.some((f) => f.id === prefill.field)) {
+      setInterviewField(prefill.field as InterviewFieldId);
+    }
+    if (prefill.mode && INTERVIEW_MODES.some((m) => m.id === prefill.mode)) {
+      setInterviewMode(prefill.mode as InterviewModeId);
+      const m = INTERVIEW_MODES.find((x) => x.id === prefill.mode);
+      if (m?.softPersona) {
+        const persona = AVATAR_STYLES.find((a) => a.id === m.softPersona);
+        if (persona) setSelectedStyle(persona);
+      }
+    }
+    if (prefill.domainPack && DOMAIN_PACKS.some((p) => p.id === prefill.domainPack)) {
+      setDomainPackId(prefill.domainPack);
+    }
+  }, []);
+
+  useEffect(() => {
+    const mapped = FIELD_TO_PACK[interviewField];
+    if (mapped && !localStorage.getItem('last_domain_pack')) {
+      setDomainPackId(mapped);
+    }
+  }, [interviewField]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === ' ') {
+        if (isSpeakingRef.current) {
+          e.preventDefault();
+          if (synthRef.current) synthRef.current.cancel();
+          isSpeakingRef.current = false;
+          setIsSpeaking(false);
+          resumeListeningRef.current();
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        leaveEarlyRef.current();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        void endInterviewRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isActive]);
+
+  const resumeSnippet = useMemo(
+    () => buildResumeSnippet(user, useProfileResume, resumePaste),
+    [user, useProfileResume, resumePaste]
+  );
+
+  const interviewCtx: InterviewContext = useMemo(() => ({
+    role,
+    company,
+    interviewField,
+    jobDescription: truncateJd(jobDescription),
+    resumeSnippet,
+    companyStyle: `${styleMeta.label}: ${styleMeta.hint}`,
+    interviewMode: `${modeMeta.label}: ${modeMeta.hint}`,
+    personaLabel: selectedStyle.label,
+    personaDescription: selectedStyle.description,
+    intensityLabel: selectedIntensity.label,
+  }), [role, company, interviewField, jobDescription, resumeSnippet, styleMeta, modeMeta, selectedStyle, selectedIntensity]);
 
   const {
     githubData,
@@ -125,6 +211,9 @@ const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish }) => {
   const advancedQuestionCountRef = useRef(0);
   const processUserInputRef = useRef<(text: string) => Promise<void>>(async () => undefined);
   const resumeListeningRef = useRef<() => void>(() => undefined);
+  const leaveEarlyRef = useRef<() => void>(() => undefined);
+  const endInterviewRef = useRef<() => Promise<void>>(async () => undefined);
+  const [silenceHint, setSilenceHint] = useState('');
 
   useEffect(() => {
     localStorage.setItem('last_target_role', role);
@@ -133,7 +222,8 @@ const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish }) => {
 
     const loadPiper = async () => {
       try {
-        await initPiper({
+        const piper = await import('../services/piper');
+        await piper.initPiper({
           onDownloadProgress: (percent) => setDownloadProgress(percent),
           onInit: () => {
             setUsePiper(true);
@@ -213,6 +303,7 @@ const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish }) => {
 
       if (usePiper) {
         try {
+          const { speakWithPiper } = await import('../services/piper');
           await speakWithPiper(
             cleanText,
             () => undefined,
@@ -241,7 +332,7 @@ const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish }) => {
         voices.find(v => v.lang.startsWith('en'));
 
       if (preferredVoice) utterance.voice = preferredVoice;
-      utterance.rate = 1.05;
+      utterance.rate = paceToRate(speechPace);
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
@@ -256,36 +347,33 @@ const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish }) => {
 
       synthRef.current.speak(utterance);
     });
-  }, [usePiper]);
+  }, [usePiper, speechPace]);
 
   const buildSystemPrompt = useCallback((mode: 'next' | 'follow_up_fallback', lastAnswer?: string) => {
-    const githubContext = githubData.length > 0
-      ? `\nCandidate's GitHub Projects to reference: ${githubData.map(r => `${r.name} (${r.description || 'No description'})`).join('; ')}`
+    const githubSummary = githubData.length > 0
+      ? `Candidate's GitHub Projects to reference: ${githubData.map(r => `${r.name} (${r.description || 'No description'})`).join('; ')}`
       : '';
-    const asked = askedQuestionsRef.current;
-    const askedBlock = asked.length
-      ? `\nAlready asked (NEVER repeat these verbatim):\n${asked.map((q, i) => `${i + 1}. ${q}`).join('\n')}`
-      : '';
-    const progress = advancedQuestionCountRef.current;
-
-    if (mode === 'follow_up_fallback') {
-      return `You are a professional ${selectedStyle.label} interviewer (${selectedStyle.description}) from ${company} for a ${role} role.
-Intensity: ${selectedIntensity.label}.
-The candidate just answered: "${(lastAnswer || '').slice(0, 500)}"
-Current main question was: "${currentQuestionRef.current}"
-Ask ONE short probing follow-up that digs into gaps or asks for a concrete example. Do NOT ask a brand-new topic. Do NOT repeat the same question. 1-2 sentences max.${githubContext}`;
-    }
-
-    return `You are a professional ${selectedStyle.label} interviewer (${selectedStyle.description}) from ${company} conducting a ${role} interview.
-Intensity Protocol: ${selectedIntensity.label}. Higher intensity = more critical probing.
-
-Rules:
-- Ask exactly ${TOTAL_QUESTIONS} DISTINCT main questions across the interview (currently advanced ${progress}/${TOTAL_QUESTIONS}).
-- Keep responses BRIEF (1-2 sentences) then ask exactly ONE new question.
-- NEVER repeat a previous question. Move to a NEW technical/behavioral topic.
-- Do NOT wrap up until all ${TOTAL_QUESTIONS} main questions are done.
-${askedBlock}${githubContext}`;
-  }, [company, role, selectedStyle, selectedIntensity, githubData]);
+    return buildInterviewerSystemPrompt({
+      mode,
+      role,
+      company,
+      interviewField,
+      interviewCtx,
+      domainPackId,
+      selectedStyle,
+      selectedIntensity,
+      modeMeta,
+      styleMeta,
+      totalQuestions,
+      progress: advancedQuestionCountRef.current,
+      topicsCovered: topicsCoveredRef.current,
+      askedQuestions: askedQuestionsRef.current,
+      currentQuestion: currentQuestionRef.current,
+      lastAnswer,
+      githubSummary: githubSummary || undefined,
+      compactDefaults: interviewMode === 'behavioral' && companyStyle === 'product',
+    });
+  }, [company, role, selectedStyle, selectedIntensity, githubData, interviewField, interviewCtx, modeMeta, styleMeta, totalQuestions, domainPackId, interviewMode, companyStyle]);
 
   const deliverAiLine = useCallback(async (text: string, opts?: { countAsMainQuestion?: boolean }) => {
     const clean = text.trim();
@@ -299,6 +387,10 @@ ${askedBlock}${githubContext}`;
       advancedQuestionCountRef.current += 1;
       setMainQuestionCount(advancedQuestionCountRef.current);
       currentQuestionRef.current = clean;
+      const topicHint = clean.replace(/\?.*$/, '').slice(0, 80).trim();
+      if (topicHint && !topicsCoveredRef.current.includes(topicHint)) {
+        topicsCoveredRef.current = [...topicsCoveredRef.current, topicHint].slice(-10);
+      }
     }
 
     await speakText(clean);
@@ -332,6 +424,10 @@ ${askedBlock}${githubContext}`;
           advancedQuestionCountRef.current += 1;
           setMainQuestionCount(advancedQuestionCountRef.current);
           currentQuestionRef.current = finalText;
+          const topicHint = finalText.replace(/\?.*$/, '').slice(0, 80).trim();
+          if (topicHint && !topicsCoveredRef.current.includes(topicHint)) {
+            topicsCoveredRef.current = [...topicsCoveredRef.current, topicHint].slice(-10);
+          }
         } else {
           currentQuestionRef.current = finalText;
         }
@@ -345,10 +441,11 @@ ${askedBlock}${githubContext}`;
     try {
       const token = await ensureAccessToken();
       const form = new FormData();
+      const filler = estimateFillerRatio(userText);
       form.append('question_text', currentQuestionRef.current || 'Tell me about yourself');
       form.append('text_answer', userText);
       form.append('latency_seconds', '30');
-      form.append('filler_ratio', '0.05');
+      form.append('filler_ratio', String(filler));
 
       const response = await apiFetch('/session/evaluate', {
         method: 'POST',
@@ -359,7 +456,10 @@ ${askedBlock}${githubContext}`;
         body: form,
       });
       if (!response.ok) return null;
-      return await response.json() as EvaluateApiResponse;
+      const data = await response.json() as EvaluateApiResponse;
+      const apiConf = data.score?.confidence;
+      setLiveConfidence(estimateSpeakingConfidence(userText, filler, apiConf));
+      return data;
     } catch {
       return null;
     }
@@ -394,7 +494,7 @@ ${askedBlock}${githubContext}`;
     conversationRef.current.push({ role: 'user', content: trimmed });
 
     try {
-      if (advancedQuestionCountRef.current >= TOTAL_QUESTIONS) {
+      if (advancedQuestionCountRef.current >= totalQuestions) {
         await deliverAiLine('Thank you. That covers our questions for today. Ending the interview now.', { countAsMainQuestion: false });
         setTurn('idle');
         return;
@@ -403,6 +503,7 @@ ${askedBlock}${githubContext}`;
       const evaluation = await evaluateAnswer(trimmed);
 
       if (evaluation?.follow_up?.question && (evaluation.next_action === 'follow_up' || evaluation.next_action === 'retry')) {
+        if (evaluation.next_action === 'retry') track('evaluate_retry', { mode: interviewMode });
         await deliverAiLine(evaluation.follow_up.question, { countAsMainQuestion: false });
         return;
       }
@@ -426,7 +527,7 @@ ${askedBlock}${githubContext}`;
       setIsProcessing(false);
       await deliverAiLine("I'm sorry, I missed that. Could you repeat your answer?");
     }
-  }, [deliverAiLine, evaluateAnswer, streamNextQuestion]);
+  }, [deliverAiLine, evaluateAnswer, streamNextQuestion, totalQuestions, interviewMode]);
 
   useEffect(() => {
     processUserInputRef.current = processUserInput;
@@ -446,6 +547,11 @@ ${askedBlock}${githubContext}`;
   };
 
   const startInterview = async () => {
+    setSetupError('');
+    if (!role.trim()) {
+      setSetupError('Please enter a job title before starting.');
+      return;
+    }
     setIsConnecting(true);
     setTranscription([]);
     conversationRef.current = [];
@@ -478,7 +584,16 @@ ${askedBlock}${githubContext}`;
         await apiFetch('/session/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role, session_id: sessionId }),
+          body: JSON.stringify({
+            role,
+            session_id: sessionId,
+            job_description: truncateJd(jobDescription),
+            resume_context: resumeSnippet,
+            interview_field: interviewField,
+            company_style: companyStyle,
+            interview_mode: interviewMode,
+            domain_pack: domainPackId,
+          }),
         });
       } catch {
         // Continue without agentic evaluate; prompt fallback still works
@@ -508,13 +623,16 @@ ${askedBlock}${githubContext}`;
         }
 
         clearSilenceTimer();
+        setSilenceHint('');
         if (liveText.length > 0) {
+          setSilenceHint('Waiting for pause…');
           silenceTimerRef.current = setTimeout(() => {
             if (turnStateRef.current !== 'listening' || isSpeakingRef.current) return;
             const fullText = `${finalTranscriptRef.current}${interimTranscript}`.trim();
             if (fullText.length > 5) {
               finalTranscriptRef.current = '';
               clearSilenceTimer();
+              setSilenceHint('');
               try {
                 recognition.stop();
               } catch {
@@ -522,7 +640,7 @@ ${askedBlock}${githubContext}`;
               }
               void processUserInputRef.current(fullText);
             }
-          }, 2800);
+          }, 3200);
         }
       };
 
@@ -545,7 +663,21 @@ ${askedBlock}${githubContext}`;
       setIsActive(true);
       setIsConnecting(false);
 
-      const intro = `Hello ${user.name.split(' ')[0]}. I'm your ${selectedStyle.label} interviewer from ${company}. I'll ask about ${TOTAL_QUESTIONS} questions for the ${role} position. Let's start: Tell me about a challenging technical project you've worked on recently.`;
+      persistInterviewPrefs({
+        role,
+        company,
+        interviewField,
+        jobDescription: truncateJd(stripControlChars(jobDescription)),
+        companyStyle,
+        interviewMode,
+        domainPack: domainPackId,
+      });
+      topicsCoveredRef.current = [];
+      recordPracticeActivity();
+      track('interview_start', { mode: interviewMode, pack: domainPackId, field: interviewField });
+
+      const companyLabel = company.trim() || 'your target company';
+      const intro = `Hello ${user.name.split(' ')[0]}. I'm your ${selectedStyle.label} interviewer from ${companyLabel}. This is a ${modeMeta.label} style interview with about ${totalQuestions} questions for the ${role} position. Let's start: Tell me about a challenging project or initiative you've worked on recently.`;
       askedQuestionsRef.current = [intro];
       advancedQuestionCountRef.current = 1;
       setMainQuestionCount(1);
@@ -559,9 +691,28 @@ ${askedBlock}${githubContext}`;
     } catch (err: unknown) {
       setIsConnecting(false);
       isActiveRef.current = false;
-      alert(err instanceof Error ? err.message : 'Microphone access required.');
+      setSetupError(err instanceof Error ? err.message : 'Microphone access required.');
     }
   };
+
+  const leaveEarly = () => {
+    isActiveRef.current = false;
+    turnStateRef.current = 'idle';
+    resetSttBuffer();
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
+    }
+    if (synthRef.current) synthRef.current.cancel();
+    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+    setIsActive(false);
+    track('interview_leave', { mode: interviewMode });
+    onBack();
+  };
+  leaveEarlyRef.current = leaveEarly;
 
   const endInterview = async () => {
     isActiveRef.current = false;
@@ -580,7 +731,7 @@ ${askedBlock}${githubContext}`;
     setIsActive(false);
 
     if (transcription.length < 2) {
-      onFinish();
+      onBack();
       return;
     }
 
@@ -589,7 +740,14 @@ ${askedBlock}${githubContext}`;
       const transcriptStrings = transcription.map(t =>
         `${t.sender === 'AI' ? 'Interviewer' : 'Candidate'}: ${t.text}`
       );
-      const analysis = await runAnalysis(transcriptStrings, role, company);
+      const analysis = await runAnalysis(transcriptStrings, role, company, {
+        jobDescription: truncateJd(stripControlChars(jobDescription)),
+        resumeContext: stripControlChars(resumeSnippet),
+        interviewField,
+        companyStyle,
+        interviewMode,
+        domainPack: domainPackId,
+      });
       const result: InterviewResult = {
         id: sessionIdRef.current || Date.now().toString(),
         date: new Date().toISOString(),
@@ -598,17 +756,33 @@ ${askedBlock}${githubContext}`;
         overallScore: analysis.overallScore,
         categories: analysis.categories,
         feedback: analysis.feedback,
-        transcription: transcriptStrings
+        transcription: transcriptStrings,
+        strengths: analysis.strengths,
+        weaknesses: analysis.weaknesses,
+        categoryExplanations: analysis.categoryExplanations,
+        improvementPlan: analysis.improvementPlan,
+        sampleAnswers: analysis.sampleAnswers,
+        field: interviewField,
+        mode: interviewMode,
+        companyStyle,
+        domainPack: domainPackId,
       };
       const existingHistory = JSON.parse(localStorage.getItem('interview_history') || '[]') as InterviewResult[];
       localStorage.setItem('interview_history', JSON.stringify([result, ...existingHistory]));
+      const activeSeat = localStorage.getItem('prepai_active_seat');
+      if (activeSeat) {
+        upsertSeat(activeSeat, analysis.overallScore);
+      }
+      track('interview_end', { mode: interviewMode, score: analysis.overallScore, pack: domainPackId });
       onFinish();
     } catch {
+      track('interview_analyze_fail', { mode: interviewMode });
       onFinish();
     } finally {
       setIsAnalyzing(false);
     }
   };
+  endInterviewRef.current = endInterview;
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--bg-deep)]">
@@ -632,202 +806,71 @@ ${askedBlock}${githubContext}`;
       `}</style>
 
       {!isActive && !isConnecting && !isAnalyzing ? (
-        <div className="flex-1 flex items-center justify-center p-6 animate-fadeIn">
-          <div className="max-w-4xl w-full p-8 md:p-12 rounded-lg glass-panel relative border border-[var(--glass-border)] shadow-2xl">
-            {piperLoading && (
-              <div className="absolute inset-0 bg-[rgba(0,0,0,0.95)] z-20 rounded-lg flex flex-col items-center justify-center p-8 backdrop-blur-md">
-                <div className="w-12 h-12 border-2 border-t-[var(--neon-emerald)] border-[rgba(255,255,255,0.1)] animate-spin mb-6"></div>
-                <h3 className="text-sm font-mono uppercase tracking-[0.3em] text-white mb-2">System.Init(Neural_Voice)</h3>
-                <p className="text-[var(--text-secondary)] font-mono text-[10px] mb-6 text-center max-w-sm">Fetching high-fidelity neural dependencies (~50MB)...</p>
-                <div className="w-64 h-1 bg-[rgba(255,255,255,0.05)] rounded-full overflow-hidden">
-                  <div className="h-full bg-[var(--neon-emerald)] transition-all duration-300" style={{ width: `${downloadProgress}%` }}></div>
-                </div>
-                <p className="font-mono text-[10px] text-[var(--neon-emerald)] mt-2">{downloadProgress}%</p>
-              </div>
-            )}
-
-            <div className="flex items-center gap-6 mb-12 pb-8 border-b border-[rgba(255,255,255,0.05)]">
-              <div className="w-16 h-16 rounded-sm flex items-center justify-center transition-all duration-500 shadow-2xl border" style={{ borderColor: selectedColor.hex, background: `${selectedColor.hex}10` }}>
-                <i className="fa-solid fa-terminal text-2xl" style={{ color: selectedColor.hex }}></i>
-              </div>
-              <div>
-                <h2 className="text-4xl font-black uppercase tracking-tighter text-white font-mono">Session_Config</h2>
-                <div className="flex items-center gap-3 mt-1">
-                  <p className="text-xs font-mono text-[var(--text-secondary)] uppercase tracking-widest">Target: {company}.env</p>
-                  {usePiper &&
-                    <span className="status-badge bg-[var(--neon-emerald)]/10 text-[var(--neon-emerald)] border border-[var(--neon-emerald)]/30">Neural_Bridge_Active</span>
-                  }
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mb-12">
-              <div className="space-y-8">
-                <div>
-                  <label className="label-premium">Position_Title</label>
-                  <input className="input-premium" value={role} onChange={e => setRole(e.target.value)} />
-                </div>
-                <div>
-                  <label className="label-premium">Organization</label>
-                  <input className="input-premium" value={company} onChange={e => setCompany(e.target.value)} />
-                </div>
-              </div>
-
-              <div className="space-y-8">
-                <div>
-                  <label className="label-premium">AI_Persona_Protocol</label>
-                  <div className="grid grid-cols-3 gap-4">
-                    {AVATAR_STYLES.map(style => (
-                      <button
-                        key={style.id}
-                        type="button"
-                        onClick={() => setSelectedStyle(style)}
-                        className={`p-4 rounded-md transition-all duration-200 flex flex-col items-center justify-center gap-2 border ${selectedStyle.id === style.id ? 'bg-[var(--bg-accent)]' : 'bg-transparent'}`}
-                        style={{
-                          borderColor: selectedStyle.id === style.id ? selectedColor.hex : 'rgba(255,255,255,0.05)',
-                          color: selectedStyle.id === style.id ? selectedColor.hex : 'var(--text-secondary)'
-                        }}
-                      >
-                        <i className={`fa-solid ${style.icon} text-xl`}></i>
-                        <span className="font-mono text-[9px] uppercase font-bold tracking-tighter">{style.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="label-premium">Interview_Intensity_Matrix</label>
-                  <div className="flex items-center justify-between p-4 rounded-md bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.05)]">
-                    {INTENSITY_MODES.map(mode => (
-                      <button
-                        key={mode.id}
-                        type="button"
-                        onClick={() => setSelectedIntensity(mode)}
-                        className={`px-4 py-2 rounded font-mono text-[10px] uppercase tracking-widest transition-all duration-200 ${selectedIntensity.id === mode.id ? 'bg-white text-black font-bold' : 'text-[var(--text-secondary)] hover:text-white'}`}
-                      >
-                        {mode.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {githubData.length > 0 && (
-              <div className="mb-8 p-4 rounded bg-[var(--neon-cyan)]/5 border border-[var(--neon-cyan)]/20">
-                <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-[var(--neon-cyan)] mb-2 flex items-center gap-2">
-                  <i className="fa-brands fa-github"></i> Neural_Context_Loaded: {githubData.length} Repositories Found
-                </p>
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                  {githubData.map(repo => (
-                    <span key={repo.id} className="px-2 py-1 bg-black/40 border border-[rgba(255,255,255,0.1)] text-[var(--text-muted)] text-[8px] font-mono whitespace-nowrap">
-                      {repo.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={startInterview}
-              disabled={piperLoading}
-              className="btn-primary w-full py-6 text-lg tracking-[0.2em]"
-              style={{ background: selectedColor.hex, color: '#000' }}
-            >
-              Execute_Interview();
-            </button>
-          </div>
-        </div>
+        <InterviewSetupForm
+          onBack={onBack}
+          piperLoading={piperLoading}
+          downloadProgress={downloadProgress}
+          usePiper={usePiper}
+          setupError={setupError}
+          role={role}
+          company={company}
+          interviewField={interviewField}
+          interviewMode={interviewMode}
+          companyStyle={companyStyle}
+          domainPackId={domainPackId}
+          speechPace={speechPace}
+          jobDescription={jobDescription}
+          useProfileResume={useProfileResume}
+          resumePaste={resumePaste}
+          selectedStyle={selectedStyle}
+          selectedColor={selectedColor}
+          selectedIntensity={selectedIntensity}
+          githubRepos={githubData}
+          onRoleChange={setRole}
+          onCompanyChange={setCompany}
+          onFieldChange={setInterviewField}
+          onModeChange={(mode, persona) => {
+            setInterviewMode(mode);
+            if (persona) setSelectedStyle(persona);
+          }}
+          onCompanyStyleChange={setCompanyStyle}
+          onDomainPackChange={setDomainPackId}
+          onSpeechPaceChange={setSpeechPace}
+          onJobDescriptionChange={(v) => setJobDescription(stripControlChars(v))}
+          onUseProfileResumeChange={setUseProfileResume}
+          onResumePasteChange={(v) => setResumePaste(stripControlChars(v))}
+          onStyleChange={setSelectedStyle}
+          onColorChange={setSelectedColor}
+          onIntensityChange={setSelectedIntensity}
+          onStart={startInterview}
+        />
       ) : isActive ? (
-        <div className="flex-1 flex flex-col p-4 md:p-10 overflow-hidden animate-fadeIn">
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 relative overflow-hidden">
-            <div className="lg:col-span-8 flex flex-col gap-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 flex-1">
-                <div className="relative rounded-lg overflow-hidden min-h-[400px] bg-black border border-[rgba(255,255,255,0.05)]">
-                  {cameraEnabled ? (
-                    <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover grayscale brightness-75 contrasts-125" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
-                      <i className="fa-solid fa-video-slash text-5xl"></i>
-                    </div>
-                  )}
-                  <div className="absolute top-6 left-6 px-3 py-1 bg-black/80 border border-[rgba(255,255,255,0.1)] font-mono text-[9px] uppercase tracking-widest text-white flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
-                    User_Live
-                  </div>
-                </div>
-
-                <div className="relative rounded-lg overflow-hidden flex flex-col min-h-[400px] bg-black border border-[rgba(255,255,255,0.05)]">
-                  <div className="flex-1 flex items-center justify-center relative bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.02)_0%,transparent_100%)]">
-                    {isSpeaking && (
-                      <div className="absolute w-64 h-64 rounded-full speaking-ring opacity-10" style={{ background: selectedColor.hex }}></div>
-                    )}
-                    <div className={`w-40 h-40 rounded-sm flex items-center justify-center transition-all duration-300 avatar-glow ${isSpeaking ? 'scale-105' : ''}`} style={{ border: `1px solid ${selectedColor.hex}40`, background: `${selectedColor.hex}05` }}>
-                      <i className={`fa-solid ${selectedStyle.icon} text-6xl`} style={{ color: selectedColor.hex }}></i>
-                    </div>
-                  </div>
-                  <div className="absolute top-6 right-6 px-3 py-1 bg-black/80 border border-[rgba(255,255,255,0.1)] font-mono text-[9px] uppercase tracking-widest flex items-center gap-2" style={{ color: selectedColor.hex }}>
-                    <i className="fa-solid fa-microchip"></i>
-                    {selectedStyle.label}_Protocol
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6 rounded-lg flex items-center justify-between glass-panel border border-[rgba(255,255,255,0.05)]">
-                <div className="flex gap-8">
-                  <div className="flex flex-col gap-1">
-                    <span className="font-mono text-[8px] uppercase tracking-widest text-[var(--text-muted)]">Core_Status</span>
-                    <span className={`font-mono text-xs uppercase tracking-[0.2em] ${isListening ? 'text-[var(--neon-emerald)]' : isSpeaking ? 'text-[var(--neon-cyan)]' : 'text-white'}`}>
-                      {isListening ? '>> Listening' : isSpeaking ? '>> Speaking' : isProcessing ? '>> Thinking' : '>> Standing_By'}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="font-mono text-[8px] uppercase tracking-widest text-[var(--text-muted)]">Main_Qs</span>
-                    <span className="font-mono text-xs text-white">{mainQuestionCount}/{TOTAL_QUESTIONS}</span>
-                  </div>
-                </div>
-                <button type="button" onClick={endInterview} className="btn-secondary border-red-500/50 text-red-500 hover:bg-red-500/10 px-10">Abort_Session</button>
-              </div>
-            </div>
-
-            <div className="lg:col-span-4 flex flex-col rounded-lg overflow-hidden glass-panel border border-[rgba(255,255,255,0.05)]">
-              <div className="p-4 bg-[rgba(255,255,255,0.02)] border-b border-[rgba(255,255,255,0.05)] flex items-center justify-between">
-                <span className="font-mono text-[10px] uppercase font-bold tracking-[0.4em] text-white">Output_Stream</span>
-                <div className="flex gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-[var(--bg-accent)]"></div>
-                  <div className="w-2 h-2 rounded-full bg-[var(--bg-accent)]"></div>
-                  <div className="w-2 h-2 rounded-full bg-[var(--neon-emerald)] animate-pulse"></div>
-                </div>
-              </div>
-
-              <div className="flex-1 p-6 overflow-y-auto space-y-6 scroll-smooth scrollbar-hide bg-[rgba(0,0,0,0.5)]">
-                {transcription.map((item, i) => (
-                  <div key={`${item.sender}-${i}-${item.text.slice(0, 12)}`} className="flex flex-col gap-2 font-mono">
-                    <span className="text-[9px] uppercase tracking-[0.3em] flex items-center gap-2" style={{ color: item.sender === 'AI' ? selectedColor.hex : 'var(--neon-emerald)' }}>
-                      {item.sender === 'AI' ? `> ${selectedStyle.label}` : '> User_Node'}
-                    </span>
-                    <div className="text-[13px] leading-relaxed terminal-text pl-4 border-l border-[rgba(255,255,255,0.05)] break-words" style={{ color: item.sender === 'AI' ? '#E2E8F0' : '#CBD5E1' }}>
-                      {item.text || (item.sender === 'You' ? '...' : '')}
-                      {item.sender === 'AI' && i === transcription.length - 1 && isProcessing && (
-                        <span className="w-2 h-4 bg-[var(--neon-cyan)] inline-block ml-1 animate-pulse"></span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                <div ref={transcriptEndRef} />
-              </div>
-            </div>
-          </div>
-        </div>
+        <InterviewActiveView
+          videoRef={videoRef}
+          transcriptEndRef={transcriptEndRef}
+          cameraEnabled={cameraEnabled}
+          selectedStyle={selectedStyle}
+          selectedColor={selectedColor}
+          isSpeaking={isSpeaking}
+          isListening={isListening}
+          isProcessing={isProcessing}
+          liveConfidence={liveConfidence}
+          silenceHint={silenceHint}
+          mainQuestionCount={mainQuestionCount}
+          totalQuestions={totalQuestions}
+          transcription={transcription}
+          onLeave={leaveEarly}
+          onEnd={() => { void endInterview(); }}
+        />
       ) : (
         <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/90 backdrop-blur-xl">
           <div className="text-center p-12 max-w-lg w-full font-mono">
             <div className="w-16 h-1 bg-[rgba(255,255,255,0.05)] mx-auto mb-8 rounded-full overflow-hidden">
               <div className="h-full bg-[var(--neon-cyan)] animate-[scanline_2s_linear_infinite]"></div>
             </div>
-            <h3 className="text-sm font-bold tracking-[0.5em] uppercase mb-4 text-white">{isAnalyzing ? 'Analyzing_Payload' : 'Handshaking...'}</h3>
+            <h3 className="text-sm font-bold tracking-[0.5em] uppercase mb-4 text-white">{isAnalyzing ? 'Reviewing your answers' : 'Starting…'}</h3>
             <p className="text-[10px] tracking-widest text-[var(--text-muted)] uppercase">
-              {isAnalyzing ? 'Compiling evaluation matrices' : 'Establishing secure neural uplink'}
+              {isAnalyzing ? 'Preparing your feedback' : 'Connecting microphone and camera'}
             </p>
           </div>
         </div>

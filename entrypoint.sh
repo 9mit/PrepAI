@@ -5,6 +5,18 @@ export REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379}"
 export FRONTEND_URL="${FRONTEND_URL:-}"
 export TRUST_PROXY="${TRUST_PROXY:-true}"
 export DISABLE_DOCS="${DISABLE_DOCS:-true}"
+
+# Hugging Face Spaces injects SPACE_ID / SPACE_HOST
+if [ -n "${SPACE_ID:-}" ] || [ -n "${SPACE_HOST:-}" ]; then
+  export PREPAI_ENV="${PREPAI_ENV:-production}"
+  export ENVIRONMENT="${ENVIRONMENT:-production}"
+  export TRUST_PROXY="${TRUST_PROXY:-true}"
+  # Prefer Space URL for CORS when FRONTEND_URL unset
+  if [ -z "${FRONTEND_URL:-}" ] && [ -n "${SPACE_HOST:-}" ]; then
+    export FRONTEND_URL="https://${SPACE_HOST}"
+  fi
+fi
+
 # Generate durable JWT secret if not provided (persists for container lifetime)
 if [ -z "${PREPAI_JWT_SECRET:-}" ]; then
   export PREPAI_JWT_SECRET="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"

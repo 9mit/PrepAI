@@ -1,6 +1,26 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserProfile } from '../types';
+import { UserProfile, FeedbackSubmission } from '../types';
+import { apiFetch } from '../services/apiClient';
+import { ROADMAP_CHANGELOG } from '../constants';
+import {
+  listTemplates,
+  saveTemplate,
+  deleteTemplate,
+  listSeats,
+  upsertSeat,
+  downloadSeatsCsv,
+  InterviewTemplate,
+  PracticeSeat,
+} from '../services/templates';
+import { dismissTour, isTourDone } from '../components/OnboardingTour';
+import { writeInterviewPrefill } from '../services/interviewContext';
+import {
+  getTelemetryAggregates,
+  downloadTelemetry,
+  clearTelemetry,
+} from '../services/telemetry';
+import { track } from '../services/telemetry';
 
 import { motion } from 'framer-motion';
 
@@ -35,6 +55,16 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUpdateUser }) => {
     const [formData, setFormData] = useState<UserProfile>(user);
     const [isEditing, setIsEditing] = useState(false);
     const [completion, setCompletion] = useState(0);
+    const [fbType, setFbType] = useState<FeedbackSubmission['type']>('idea');
+    const [fbMessage, setFbMessage] = useState('');
+    const [fbRating, setFbRating] = useState(4);
+    const [fbStatus, setFbStatus] = useState('');
+    const [fbSending, setFbSending] = useState(false);
+    const [templates, setTemplates] = useState<InterviewTemplate[]>(() => listTemplates());
+    const [templateName, setTemplateName] = useState('');
+    const [seats, setSeats] = useState<PracticeSeat[]>(() => listSeats());
+    const [seatName, setSeatName] = useState('');
+    const [tourDone, setTourDone] = useState(isTourDone());
 
     const safeGithubUrl = (url: string | undefined): string => {
         if (!url) return '#';
@@ -71,6 +101,46 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUpdateUser }) => {
     const handleSave = () => {
         onUpdateUser(formData);
         setIsEditing(false);
+    };
+
+    const handleFeedbackSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!fbMessage.trim()) {
+            setFbStatus('Please enter a message.');
+            return;
+        }
+        setFbSending(true);
+        setFbStatus('');
+        const entry: FeedbackSubmission = {
+            id: `fb-${Date.now()}`,
+            type: fbType,
+            message: fbMessage.trim(),
+            rating: fbType === 'rating' ? fbRating : undefined,
+            createdAt: new Date().toISOString(),
+        };
+        try {
+            const existing = JSON.parse(localStorage.getItem('prepai_feedback') || '[]') as FeedbackSubmission[];
+            localStorage.setItem('prepai_feedback', JSON.stringify([entry, ...existing].slice(0, 50)));
+            try {
+                await apiFetch('/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: entry.type,
+                        message: entry.message,
+                        rating: entry.rating ?? null,
+                    }),
+                });
+            } catch {
+                // Local save is enough if API offline
+            }
+            setFbMessage('');
+            setFbStatus('Thanks — your feedback was saved.');
+        } catch {
+            setFbStatus('Could not save feedback. Try again.');
+        } finally {
+            setFbSending(false);
+        }
     };
 
 
@@ -296,6 +366,275 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUpdateUser }) => {
                     </div>
                 </div>
             )}
+
+            <motion.section variants={itemVariants} className="glass-panel p-6 sm:p-8 border border-[rgba(255,255,255,0.05)] space-y-6 font-mono">
+                <h2 className="text-sm font-bold uppercase tracking-[0.3em] text-white">Diagnostics</h2>
+                <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
+                    Local anonymous telemetry — no transcripts or PII
+                </p>
+                {(() => {
+                    const agg = getTelemetryAggregates();
+                    return (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px]">
+                            <div className="p-3 border border-[rgba(255,255,255,0.05)]">
+                                <p className="text-[var(--text-muted)]">Starts</p>
+                                <p className="text-white text-lg">{agg.interviewStarts}</p>
+                            </div>
+                            <div className="p-3 border border-[rgba(255,255,255,0.05)]">
+                                <p className="text-[var(--text-muted)]">Completion</p>
+                                <p className="text-white text-lg">{agg.completionRate}%</p>
+                            </div>
+                            <div className="p-3 border border-[rgba(255,255,255,0.05)]">
+                                <p className="text-[var(--text-muted)]">Leaves</p>
+                                <p className="text-white text-lg">{agg.interviewLeaves}</p>
+                            </div>
+                            <div className="p-3 border border-[rgba(255,255,255,0.05)]">
+                                <p className="text-[var(--text-muted)]">Avg API ms</p>
+                                <p className="text-white text-lg">{agg.avgLatencyMs ?? '—'}</p>
+                            </div>
+                        </div>
+                    );
+                })()}
+                <div className="flex flex-wrap gap-3">
+                    <button
+                        type="button"
+                        className="btn-secondary text-[9px] px-3 py-2"
+                        onClick={() => {
+                            track('feature_use', { feature: 'diagnostics_export' });
+                            downloadTelemetry();
+                        }}
+                    >
+                        Export diagnostics JSON
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-secondary text-[9px] px-3 py-2"
+                        onClick={() => clearTelemetry()}
+                    >
+                        Clear diagnostics
+                    </button>
+                </div>
+            </motion.section>
+
+            <motion.section variants={itemVariants} className="glass-panel p-6 sm:p-8 border border-[rgba(255,255,255,0.05)] space-y-6 font-mono">
+                <h2 className="text-sm font-bold uppercase tracking-[0.3em] text-white">Interview templates</h2>
+                <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
+                    Save setup presets for quick reuse
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <input
+                        className="input-premium flex-1"
+                        value={templateName}
+                        onChange={(e) => setTemplateName(e.target.value)}
+                        placeholder="Template name"
+                        aria-label="Template name"
+                    />
+                    <button
+                        type="button"
+                        className="btn-secondary text-[10px] px-4 py-3"
+                        onClick={() => {
+                            saveTemplate(templateName || 'My setup', {
+                                role: localStorage.getItem('last_target_role') || '',
+                                company: localStorage.getItem('last_target_company') || '',
+                                interviewField: localStorage.getItem('last_interview_field') || '',
+                                interviewMode: localStorage.getItem('last_interview_mode') || '',
+                                companyStyle: localStorage.getItem('last_company_style') || '',
+                                domainPack: localStorage.getItem('last_domain_pack') || '',
+                            });
+                            setTemplates(listTemplates());
+                            setTemplateName('');
+                        }}
+                    >
+                        Save current prefs
+                    </button>
+                </div>
+                <div className="space-y-2">
+                    {templates.length === 0 && (
+                        <p className="text-[10px] text-[var(--text-muted)]">No templates yet.</p>
+                    )}
+                    {templates.map((t) => (
+                        <div key={t.id} className="flex flex-wrap items-center justify-between gap-2 p-3 border border-[rgba(255,255,255,0.05)]">
+                            <div>
+                                <p className="text-xs text-white">{t.name}</p>
+                                <p className="text-[9px] text-[var(--text-muted)]">
+                                    {t.context.interviewMode || 'mode'} · {t.context.domainPack || 'pack'}
+                                </p>
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    className="btn-secondary text-[9px] px-3 py-2"
+                                    onClick={() => {
+                                        writeInterviewPrefill({
+                                            mode: t.context.interviewMode,
+                                            field: t.context.interviewField,
+                                            domainPack: t.context.domainPack,
+                                        });
+                                        window.location.hash = '#/interview';
+                                    }}
+                                >
+                                    Use
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn-secondary text-[9px] px-3 py-2 text-red-400"
+                                    onClick={() => {
+                                        deleteTemplate(t.id);
+                                        setTemplates(listTemplates());
+                                    }}
+                                >
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </motion.section>
+
+            <motion.section variants={itemVariants} className="glass-panel p-6 sm:p-8 border border-[rgba(255,255,255,0.05)] space-y-6 font-mono">
+                <h2 className="text-sm font-bold uppercase tracking-[0.3em] text-white">Practice seats</h2>
+                <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
+                    Local multi-profile scores · CSV export for faculty view
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <input
+                        className="input-premium flex-1"
+                        value={seatName}
+                        onChange={(e) => setSeatName(e.target.value)}
+                        placeholder="Seat name"
+                        aria-label="Practice seat name"
+                    />
+                    <button
+                        type="button"
+                        className="btn-secondary text-[10px] px-4 py-3"
+                        onClick={() => {
+                            if (!seatName.trim()) return;
+                            upsertSeat(seatName.trim());
+                            setSeats(listSeats());
+                            localStorage.setItem('prepai_active_seat', seatName.trim());
+                            setSeatName('');
+                        }}
+                    >
+                        Add / select
+                    </button>
+                    <button type="button" className="btn-secondary text-[10px] px-4 py-3" onClick={() => downloadSeatsCsv()}>
+                        Export CSV
+                    </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {seats.map((s) => {
+                        const avg = s.scores.length
+                            ? Math.round(s.scores.reduce((a, b) => a + b, 0) / s.scores.length)
+                            : 0;
+                        return (
+                            <button
+                                key={s.id}
+                                type="button"
+                                className="px-3 py-2 border border-[rgba(255,255,255,0.05)] text-[9px] uppercase text-[var(--text-secondary)]"
+                                onClick={() => localStorage.setItem('prepai_active_seat', s.name)}
+                            >
+                                {s.name} · {s.scores.length} sess · avg {avg}
+                            </button>
+                        );
+                    })}
+                </div>
+                <div className="pt-4 border-t border-[rgba(255,255,255,0.05)] flex items-center justify-between gap-4 flex-wrap">
+                    <p className="text-[10px] text-[var(--text-muted)]">
+                        Onboarding tour: {tourDone ? 'dismissed' : 'pending'}
+                    </p>
+                    <button
+                        type="button"
+                        className="btn-secondary text-[9px] px-3 py-2"
+                        onClick={() => {
+                            localStorage.removeItem('prepai_tour_done');
+                            setTourDone(false);
+                        }}
+                    >
+                        Reset tour
+                    </button>
+                    {!tourDone && (
+                        <button
+                            type="button"
+                            className="btn-secondary text-[9px] px-3 py-2"
+                            onClick={() => {
+                                dismissTour();
+                                setTourDone(true);
+                            }}
+                        >
+                            Mark tour done
+                        </button>
+                    )}
+                </div>
+            </motion.section>
+
+            <motion.section variants={itemVariants} className="glass-panel p-6 sm:p-8 border border-[rgba(255,255,255,0.05)] space-y-6 font-mono">
+                <h2 className="text-sm font-bold uppercase tracking-[0.3em] text-white">Send feedback</h2>
+                <p className="text-[10px] uppercase tracking-widest text-[var(--text-muted)]">
+                    Report bugs, rate interview quality, or suggest features
+                </p>
+                <form onSubmit={handleFeedbackSubmit} className="space-y-4">
+                    <div className="flex flex-wrap gap-2" role="group" aria-label="Feedback type">
+                        {(['bug', 'feature', 'rating', 'idea'] as const).map((t) => (
+                            <button
+                                key={t}
+                                type="button"
+                                onClick={() => setFbType(t)}
+                                className={`px-3 py-2 border text-[9px] uppercase tracking-wider focus:outline-none focus:ring-1 focus:ring-[var(--neon-cyan)] ${
+                                    fbType === t
+                                        ? 'border-[var(--neon-cyan)] text-[var(--neon-cyan)]'
+                                        : 'border-[rgba(255,255,255,0.05)] text-[var(--text-muted)]'
+                                }`}
+                            >
+                                {t}
+                            </button>
+                        ))}
+                    </div>
+                    {fbType === 'rating' && (
+                        <label className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-[var(--text-secondary)]">
+                            Interview quality
+                            <input
+                                type="range"
+                                min={1}
+                                max={5}
+                                value={fbRating}
+                                onChange={(e) => setFbRating(Number(e.target.value))}
+                                className="flex-1 accent-[var(--neon-emerald)]"
+                                aria-label="Interview quality rating"
+                            />
+                            <span className="text-white">{fbRating}/5</span>
+                        </label>
+                    )}
+                    <textarea
+                        className="input-premium h-28 resize-none"
+                        value={fbMessage}
+                        onChange={(e) => setFbMessage(e.target.value)}
+                        placeholder="Describe the bug, idea, or experience…"
+                        aria-label="Feedback message"
+                    />
+                    {fbStatus && (
+                        <p role="status" className="text-[10px] uppercase tracking-widest text-[var(--neon-emerald)]">{fbStatus}</p>
+                    )}
+                    <button
+                        type="submit"
+                        disabled={fbSending}
+                        className="btn-primary py-4 px-8 text-[10px] tracking-widest disabled:opacity-50"
+                        style={{ background: 'var(--neon-emerald)', color: '#000' }}
+                    >
+                        {fbSending ? 'Sending…' : 'Submit feedback'}
+                    </button>
+                </form>
+                <div className="pt-6 border-t border-[rgba(255,255,255,0.05)]">
+                    <p className="text-[9px] uppercase tracking-widest text-[var(--text-muted)] mb-3">Shipped roadmap</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {ROADMAP_CHANGELOG.map((p) => (
+                            <div key={p.phase} className="p-3 border border-[rgba(255,255,255,0.05)]">
+                                <p className="text-[9px] text-[var(--neon-emerald)] uppercase tracking-widest">Phase {p.phase}</p>
+                                <p className="text-xs text-white font-bold">{p.title}</p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </motion.section>
         </motion.div>
     );
 };

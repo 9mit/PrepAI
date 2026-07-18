@@ -9,6 +9,11 @@ import AnalyticsPage from './pages/Analytics';
 import ProfilePage from './pages/ProfilePage';
 import QuizPage from './pages/Quiz';
 import Layout from './components/Layout';
+import OnboardingTour from './components/OnboardingTour';
+import ErrorBoundary from './components/ErrorBoundary';
+import OfflineBanner from './components/OfflineBanner';
+import PrivacyPage from './pages/Privacy';
+import TermsPage from './pages/Terms';
 import { stripPassword } from './services/authCrypto';
 
 import { AnimatePresence, motion } from 'framer-motion';
@@ -135,19 +140,35 @@ const App: React.FC = () => {
         case AppRoute.AUTH:
           component = <AuthPage onLogin={handleLogin} />;
           break;
+        case AppRoute.INTERVIEW:
+          component = user ? (
+            <InterviewRoom
+              user={user}
+              onFinish={() => navigate(AppRoute.ANALYTICS)}
+              onBack={() => navigate(AppRoute.DASHBOARD)}
+            />
+          ) : null;
+          break;
         case AppRoute.ONBOARDING:
           component = user ? (
-            <OnboardingPage user={user} onComplete={handleOnboardingComplete} />
+            <OnboardingPage
+              user={user}
+              onComplete={handleOnboardingComplete}
+              onBack={handleLogout}
+            />
           ) : <AuthPage onLogin={handleLogin} />;
           break;
         case AppRoute.DASHBOARD:
-          component = user ? <DashboardPage user={user} onStartInterview={() => navigate(AppRoute.INTERVIEW)} /> : null;
-          break;
-        case AppRoute.INTERVIEW:
-          component = user ? <InterviewRoom user={user} onFinish={() => navigate(AppRoute.ANALYTICS)} /> : null;
+          component = user ? (
+            <DashboardPage
+              user={user}
+              onStartInterview={() => navigate(AppRoute.INTERVIEW)}
+              onNavigate={navigate}
+            />
+          ) : null;
           break;
         case AppRoute.ANALYTICS:
-          component = user ? <AnalyticsPage /> : null;
+          component = user ? <AnalyticsPage onNavigate={navigate} /> : null;
           break;
         case AppRoute.QUIZ:
           component = user ? <QuizPage onNavigate={navigate} /> : null;
@@ -155,33 +176,46 @@ const App: React.FC = () => {
         case AppRoute.PROFILE:
           component = user ? <ProfilePage user={user} onUpdateUser={handleProfileUpdate} /> : null;
           break;
+        case AppRoute.PRIVACY:
+          component = <PrivacyPage onNavigate={navigate} />;
+          break;
+        case AppRoute.TERMS:
+          component = <TermsPage onNavigate={navigate} />;
+          break;
         default:
           component = <AuthPage onLogin={handleLogin} />;
       }
     }
 
     return (
-      <motion.div
-        key={currentRoute}
-        initial="initial"
-        animate="animate"
-        exit="exit"
-        variants={pageVariants}
-        className="w-full h-full"
-      >
-        {component}
-      </motion.div>
+      <ErrorBoundary>
+        <motion.div
+          key={currentRoute}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          variants={pageVariants}
+          className="w-full h-full"
+        >
+          {component}
+        </motion.div>
+      </ErrorBoundary>
     );
   };
 
   return (
     <div className="min-h-screen bg-[var(--bg-deep)]">
+      <OfflineBanner />
+      {user?.onboarded && currentRoute === AppRoute.DASHBOARD && <OnboardingTour />}
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2 focus:bg-black focus:text-white focus:px-3 focus:py-2 font-mono text-xs">
+        Skip to main content
+      </a>
       <AnimatePresence mode="wait">
         {currentRoute === AppRoute.AUTH || currentRoute === AppRoute.ONBOARDING || currentRoute === AppRoute.INTERVIEW ? (
-          renderRoute()
+          <div id="main-content">{renderRoute()}</div>
         ) : (
           <Layout currentRoute={currentRoute} user={user} onNavigate={navigate} onLogout={handleLogout}>
-            {renderRoute()}
+            <div id="main-content">{renderRoute()}</div>
           </Layout>
         )}
       </AnimatePresence>

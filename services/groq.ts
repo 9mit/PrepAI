@@ -122,12 +122,30 @@ export async function* streamChatWithInterviewer(
 export async function analyzeInterview(
     transcription: string[],
     role: string,
-    company: string
+    company: string,
+    extras?: {
+        jobDescription?: string;
+        resumeContext?: string;
+        interviewField?: string;
+        companyStyle?: string;
+        interviewMode?: string;
+        domainPack?: string;
+    }
 ) {
     const response = await apiFetch('/interview/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcription, role, company }),
+        body: JSON.stringify({
+            transcription,
+            role,
+            company,
+            job_description: extras?.jobDescription || '',
+            resume_context: extras?.resumeContext || '',
+            interview_field: extras?.interviewField || '',
+            company_style: extras?.companyStyle || '',
+            interview_mode: extras?.interviewMode || '',
+            domain_pack: extras?.domainPack || '',
+        }),
     });
 
     if (!response.ok) {

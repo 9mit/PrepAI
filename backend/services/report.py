@@ -136,7 +136,25 @@ def _generate_client_report_sync(payload: InterviewClientReportRequest) -> bytes
         lines.append(("Feedback:", 18))
         for fb in payload.feedback[:8]:
             lines.append((f"* {fb[:95]}", 16))
+    if payload.strengths:
+        lines.append(("", 10))
+        lines.append(("Strengths:", 18))
+        for s in payload.strengths[:5]:
+            lines.append((f"+ {s[:95]}", 16))
+    if payload.weaknesses:
+        lines.append(("", 10))
+        lines.append(("Weaknesses:", 18))
+        for w in payload.weaknesses[:5]:
+            lines.append((f"- {w[:95]}", 16))
+    if payload.improvement_plan:
+        lines.append(("", 10))
+        lines.append(("Improvement plan:", 18))
+        for step in payload.improvement_plan[:5]:
+            lines.append((f"> {step[:95]}", 16))
     study = _weak_topics_from_categories(payload.categories)
+    if payload.weaknesses:
+        study = list(payload.weaknesses[:3]) + study
+    study = study[:5]
     try:
         return _draw_pdf(f"PrepAI Interview Report: {payload.role}", lines, study)
     except Exception as e:

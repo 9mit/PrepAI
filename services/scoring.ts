@@ -13,14 +13,15 @@ export function scaleScoreTo10000(overallScore100: number): number {
  * session metrics (latency, follow-ups) are unavailable.
  */
 export function approximateOfficialScore(result: InterviewResult): number {
-  const byName = (name: string): number => {
-    const found = result.categories.find(
-      (c) => c.category.toLowerCase() === name.toLowerCase()
+  const byName = (...names: string[]): number => {
+    const lowered = names.map((n) => n.toLowerCase());
+    const found = result.categories.find((c) =>
+      lowered.includes(c.category.toLowerCase())
     );
     return found?.score ?? result.overallScore;
   };
 
-  const accuracy = byName("Technical Knowledge");
+  const accuracy = byName("Role Knowledge", "Technical Knowledge");
   const depth = byName("Problem Solving");
   const adaptability = byName("Cultural Fit");
   const confidence = byName("Confidence");

@@ -1,13 +1,20 @@
 
-import React, { useMemo } from 'react';
-import { UserProfile, InterviewResult } from '../types';
+import React, { useMemo, useState } from 'react';
+import { UserProfile, InterviewResult, AppRoute } from '../types';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from 'recharts';
+import { getDashboardRecommendations } from '../services/dashboardRecs';
+import { writeInterviewPrefill, writeQuizPrefill, downloadInterviewHistory } from '../services/interviewContext';
+import { ROADMAP_CHANGELOG } from '../constants';
+import { getDailyChallenge, getWeeklyChallenge, getPracticeStreak, getMonthlySummary } from '../services/growth';
+import { DOMAIN_PACKS } from '../services/domainPacks';
+import { track } from '../services/telemetry';
 
 import { motion } from 'framer-motion';
 
 interface DashboardPageProps {
   user: UserProfile;
   onStartInterview: () => void;
+  onNavigate: (route: AppRoute) => void;
 }
 
 const containerVariants = {
@@ -33,13 +40,19 @@ const itemVariants = {
   }
 };
 
-const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview }) => {
+const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview, onNavigate }) => {
   const history: InterviewResult[] = useMemo(() => {
-    return JSON.parse(localStorage.getItem('interview_history') || '[]');
+    try {
+      return JSON.parse(localStorage.getItem('interview_history') || '[]') as InterviewResult[];
+    } catch {
+      return [];
+    }
   }, []);
 
+  const [showChangelog, setShowChangelog] = useState(false);
+
   const stats = useMemo(() => {
-    if (history.length === 0) return { avgScore: 0, count: 0, lastCategories: [] };
+    if (history.length === 0) return { avgScore: 0, count: 0, lastCategories: [] as InterviewResult['categories'] };
     const avgScore = Math.round(history.reduce((acc, curr) => acc + curr.overallScore, 0) / history.length);
     return {
       avgScore,
@@ -47,6 +60,13 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
       lastCategories: history[0].categories
     };
   }, [history]);
+
+  const recommendations = useMemo(() => getDashboardRecommendations(history), [history]);
+  const daily = useMemo(() => getDailyChallenge(), []);
+  const weekly = useMemo(() => getWeeklyChallenge(), []);
+  const streak = getPracticeStreak();
+  const monthly = useMemo(() => getMonthlySummary(history), [history]);
+  const recentPacks = DOMAIN_PACKS.slice(0, 6);
 
   return (
     <motion.div
@@ -59,11 +79,11 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
       <motion.header variants={itemVariants} className="flex flex-col md:flex-row md:items-center justify-between gap-8 pb-10 border-b border-[rgba(255,255,255,0.05)]">
         <div className="space-y-3">
           <div className="flex items-center gap-3">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-[0.4em] text-[var(--neon-cyan)] px-2 py-0.5 border border-[var(--neon-cyan)]/20 bg-[var(--neon-cyan)]/5">System.Active</span>
-            <span className="text-[10px] font-mono font-bold uppercase tracking-[0.4em] text-[var(--text-muted)]">User: {user.name.split(' ')[0]}</span>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-[0.4em] text-[var(--neon-cyan)] px-2 py-0.5 border border-[var(--neon-cyan)]/20 bg-[var(--neon-cyan)]/5">Online</span>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-[0.4em] text-[var(--text-muted)]">Hi, {user.name.split(' ')[0]}</span>
           </div>
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-black uppercase tracking-tighter text-white font-mono">
-            Dashboard<span className="text-[var(--neon-emerald)]">.io</span>
+            Home
           </h1>
         </div>
         <button
@@ -73,9 +93,130 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
           style={{ background: 'var(--neon-emerald)', color: '#000' }}
         >
           <i className="fa-solid fa-bolt-lightning text-lg"></i>
-          Execute_New_Session
+          Start practice interview
         </button>
       </motion.header>
+
+      <motion.section variants={itemVariants} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="glass-panel p-5 border border-[rgba(255,255,255,0.05)]">
+          <p className="font-mono text-[9px] uppercase tracking-widest text-[var(--neon-emerald)] mb-2">Streak</p>
+          <p className="font-mono text-3xl font-black text-white">{streak} day{streak === 1 ? '' : 's'}</p>
+        </div>
+        <div className="glass-panel p-5 border border-[rgba(255,255,255,0.05)]">
+          <p className="font-mono text-[9px] uppercase tracking-widest text-[var(--neon-cyan)] mb-2">This month</p>
+          <p className="font-mono text-sm text-white">{monthly.sessions} sessions · avg {monthly.avgScore}</p>
+          <p className="font-mono text-[9px] text-[var(--text-muted)] mt-2">{monthly.topWeakness}</p>
+        </div>
+        <div className="glass-panel p-5 border border-[rgba(255,255,255,0.05)] flex flex-col gap-2">
+          <p className="font-mono text-[9px] uppercase tracking-widest text-[var(--neon-orange)]">Quick actions</p>
+          <button type="button" onClick={() => downloadInterviewHistory()} className="btn-secondary text-[9px] py-2">
+            Export history JSON
+          </button>
+        </div>
+      </motion.section>
+
+      <motion.section variants={itemVariants} className="glass-panel p-6 border border-[rgba(255,255,255,0.05)] space-y-4">
+        <h2 className="font-mono text-xs uppercase font-bold tracking-[0.4em] text-white">Challenges</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button
+            type="button"
+            className="text-left p-4 border border-[rgba(255,255,255,0.05)] hover:border-[var(--neon-cyan)]"
+            onClick={() => {
+              writeInterviewPrefill({ mode: daily.mode, domainPack: daily.domainPack });
+              onStartInterview();
+            }}
+          >
+            <p className="font-mono text-[9px] text-[var(--neon-cyan)] uppercase tracking-widest mb-1">Daily</p>
+            <p className="font-mono text-sm text-white">{daily.title}</p>
+          </button>
+          <button
+            type="button"
+            className="text-left p-4 border border-[rgba(255,255,255,0.05)] hover:border-[var(--neon-emerald)]"
+            onClick={() => {
+              writeInterviewPrefill({ mode: weekly.mode, domainPack: weekly.domainPack });
+              onStartInterview();
+            }}
+          >
+            <p className="font-mono text-[9px] text-[var(--neon-emerald)] uppercase tracking-widest mb-1">Weekly</p>
+            <p className="font-mono text-sm text-white">{weekly.title}</p>
+          </button>
+        </div>
+        <div>
+          <p className="font-mono text-[9px] uppercase tracking-widest text-[var(--text-muted)] mb-2">Recently added packs</p>
+          <div className="flex flex-wrap gap-2">
+            {recentPacks.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  writeInterviewPrefill({ domainPack: p.id });
+                  onStartInterview();
+                }}
+                className="px-3 py-2 border border-[rgba(255,255,255,0.05)] font-mono text-[9px] uppercase text-[var(--text-secondary)] hover:border-[var(--neon-cyan)]"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </motion.section>
+
+      <motion.section variants={itemVariants} className="glass-panel p-6 sm:p-8 border border-[rgba(255,255,255,0.05)] space-y-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <h2 className="font-mono text-xs uppercase font-bold tracking-[0.4em] text-white">Recommended practice</h2>
+          <button
+            type="button"
+            onClick={() => setShowChangelog((v) => !v)}
+            className="font-mono text-[9px] uppercase tracking-widest text-[var(--text-muted)] hover:text-white"
+          >
+            {showChangelog ? 'Hide roadmap' : 'View roadmap'}
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {recommendations.map((rec) => (
+            <button
+              key={rec.id}
+              type="button"
+              onClick={() => {
+                track('recommendation_click', { id: rec.id, action: rec.action });
+                if (rec.action === 'quiz') {
+                  if (rec.prefills?.topic) writeQuizPrefill(rec.prefills.topic);
+                  onNavigate(AppRoute.QUIZ);
+                } else {
+                  writeInterviewPrefill({
+                    mode: rec.prefills?.mode,
+                    field: rec.prefills?.field,
+                    domainPack: rec.prefills?.domainPack,
+                  });
+                  onStartInterview();
+                }
+              }}
+              className="text-left p-5 border border-[rgba(255,255,255,0.05)] hover:border-[var(--neon-cyan)] transition-colors bg-[var(--bg-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--neon-cyan)]"
+            >
+              <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--neon-cyan)] mb-2">
+                {rec.action === 'quiz' ? 'Quiz' : 'Interview'}
+              </p>
+              <p className="font-mono text-sm font-bold text-white mb-2">{rec.title}</p>
+              <p className="font-mono text-[10px] text-[var(--text-muted)] leading-relaxed">{rec.reason}</p>
+            </button>
+          ))}
+        </div>
+        {showChangelog && (
+          <div className="pt-4 border-t border-[rgba(255,255,255,0.05)] grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-80 overflow-y-auto">
+            {ROADMAP_CHANGELOG.map((p) => (
+              <div key={p.phase} className="p-4 border border-[rgba(255,255,255,0.05)]">
+                <p className="font-mono text-[9px] uppercase tracking-widest text-[var(--neon-emerald)] mb-2">Phase {p.phase}</p>
+                <p className="font-mono text-xs font-bold text-white mb-2">{p.title}</p>
+                <ul className="space-y-1">
+                  {p.items.map((item) => (
+                    <li key={item} className="font-mono text-[9px] text-[var(--text-muted)]">• {item}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </motion.section>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 space-y-8">
@@ -87,9 +228,9 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
                 <div className="w-10 h-10 border border-[rgba(255,255,255,0.05)] flex items-center justify-center bg-[var(--bg-accent)] group-hover:border-[var(--neon-cyan)] transition-colors">
                   <i className="fa-solid fa-database text-sm text-[var(--text-secondary)] group-hover:text-[var(--neon-cyan)]"></i>
                 </div>
-                <span className="text-[8px] font-mono text-[var(--text-muted)] uppercase tracking-widest">metric_01</span>
+                <span className="text-[8px] font-mono text-[var(--text-muted)] uppercase tracking-widest">01</span>
               </div>
-              <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-1 text-[var(--text-muted)]">Total_Sessions</p>
+              <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-1 text-[var(--text-muted)]">Interviews</p>
               <h3 className="text-5xl font-mono font-black text-white">{stats.count.toString().padStart(2, '0')}</h3>
             </div>
 
@@ -99,9 +240,9 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
                 <div className="w-10 h-10 border border-[rgba(255,255,255,0.05)] flex items-center justify-center bg-[var(--bg-accent)] group-hover:border-[var(--neon-orange)] transition-colors">
                   <i className="fa-solid fa-chart-line text-sm text-[var(--text-secondary)] group-hover:text-[var(--neon-orange)]"></i>
                 </div>
-                <span className="text-[8px] font-mono text-[var(--text-muted)] uppercase tracking-widest">metric_02</span>
+                <span className="text-[8px] font-mono text-[var(--text-muted)] uppercase tracking-widest">02</span>
               </div>
-              <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-1 text-[var(--text-muted)]">Performance_Index</p>
+              <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-1 text-[var(--text-muted)]">Average score</p>
               <h3 className="text-5xl font-mono font-black text-white">{stats.avgScore}<span className="text-sm ml-1 text-[var(--text-muted)]">%</span></h3>
             </div>
 
@@ -111,19 +252,19 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
                 <div className="w-10 h-10 border border-[rgba(255,255,255,0.05)] flex items-center justify-center bg-[var(--bg-accent)] group-hover:border-[var(--neon-emerald)] transition-colors">
                   <i className="fa-solid fa-microchip text-sm text-[var(--text-secondary)] group-hover:text-[var(--neon-emerald)]"></i>
                 </div>
-                <span className="text-[8px] font-mono text-[var(--text-muted)] uppercase tracking-widest">metric_03</span>
+                <span className="text-[8px] font-mono text-[var(--text-muted)] uppercase tracking-widest">03</span>
               </div>
-              <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-1 text-[var(--text-muted)]">System_Status</p>
-              <h3 className="text-5xl font-mono font-black text-[var(--neon-emerald)] uppercase">{history.length > 0 ? 'Live' : 'Rdy'}</h3>
+              <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] mb-1 text-[var(--text-muted)]">Status</p>
+              <h3 className="text-5xl font-mono font-black text-[var(--neon-emerald)] uppercase">{history.length > 0 ? 'Active' : 'Ready'}</h3>
             </div>
           </motion.div>
 
           {/* Activity Stream */}
           <motion.div variants={itemVariants} className="glass-panel rounded-lg overflow-hidden border border-[rgba(255,255,255,0.05)]">
             <div className="p-6 bg-[rgba(255,255,255,0.02)] border-b border-[rgba(255,255,255,0.05)] flex items-center justify-between">
-              <h3 className="font-mono text-xs uppercase font-bold tracking-[0.4em] text-white">Activity_Stream</h3>
+              <h3 className="font-mono text-xs uppercase font-bold tracking-[0.4em] text-white">Recent interviews</h3>
               <div className="flex gap-2">
-                <span className="text-[9px] font-mono text-[var(--neon-cyan)] uppercase cursor-pointer hover:underline tracking-widest">Export_Logs</span>
+                <span className="text-[9px] font-mono text-[var(--neon-cyan)] uppercase tracking-widest">History</span>
               </div>
             </div>
 
@@ -137,20 +278,20 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
                     <div className="min-w-0">
                       <p className="font-mono font-bold text-sm text-white uppercase tracking-tight group-hover:text-[var(--neon-cyan)] transition-colors truncate">{session.role}</p>
                       <p className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-tighter mt-1 truncate">
-                        {session.company} // {new Date(session.date).toISOString().split('T')[0]}
+                        {session.company || '—'} · {new Date(session.date).toISOString().split('T')[0]}
                       </p>
                     </div>
                   </div>
                   <div className="text-left sm:text-right shrink-0 pl-16 sm:pl-0">
                     <p className="font-mono text-2xl font-black text-white">{session.overallScore.toString().padStart(3, '0')}</p>
-                    <p className="text-[8px] font-mono uppercase font-bold tracking-widest text-[var(--text-muted)]">pts_total</p>
+                    <p className="text-[8px] font-mono uppercase font-bold tracking-widest text-[var(--text-muted)]">score</p>
                   </div>
                 </div>
               )) : (
                 <div className="py-20 flex flex-col items-center justify-center text-center opacity-50">
                   <i className="fa-solid fa-box-open text-4xl mb-4 text-[var(--text-muted)]"></i>
-                  <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-white">Null_History_Detected</p>
-                  <p className="font-mono text-[9px] text-[var(--text-muted)] mt-2">No session logs found in primary storage.</p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-white">No interviews yet</p>
+                  <p className="font-mono text-[9px] text-[var(--text-muted)] mt-2">Start a practice interview to see results here.</p>
                 </div>
               )}
             </div>
@@ -160,8 +301,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
         {/* Neural Analysis (Radar) */}
         <motion.div variants={itemVariants} className="lg:col-span-4 glass-panel rounded-lg border border-[rgba(255,255,255,0.05)] flex flex-col">
           <div className="p-6 bg-[rgba(255,255,255,0.02)] border-b border-[rgba(255,255,255,0.05)]">
-            <h3 className="font-mono text-xs uppercase font-bold tracking-[0.4em] text-white">Neural_Analysis</h3>
-            <p className="font-mono text-[9px] mt-1 text-[var(--text-muted)] uppercase tracking-tighter">Skill pattern recognition data</p>
+            <h3 className="font-mono text-xs uppercase font-bold tracking-[0.4em] text-white">Skill snapshot</h3>
+            <p className="font-mono text-[9px] mt-1 text-[var(--text-muted)] uppercase tracking-tighter">From your latest interview</p>
           </div>
 
           <div className="flex-1 p-4 sm:p-6 flex items-center justify-center min-h-[320px] sm:min-h-[400px] overflow-hidden">
@@ -190,7 +331,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
                   <i className="fa-solid fa-radar text-[var(--text-muted)] animate-pulse"></i>
                 </div>
                 <p className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-[0.2em] leading-relaxed">
-                  Insufficient_Data:<br />Please initiate a session to map skill matrices.
+                  Complete an interview to see your skill breakdown.
                 </p>
               </div>
             )}
@@ -199,8 +340,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ user, onStartInterview })
           {stats.lastCategories.length > 0 && (
             <div className="p-6 border-t border-[rgba(255,255,255,0.05)] bg-[rgba(255,255,255,0.01)]">
               <div className="flex items-center justify-between font-mono text-[9px] text-[var(--text-secondary)] uppercase tracking-widest">
-                <span>Sync_Status</span>
-                <span className="text-[var(--neon-emerald)]">100%_Optimal</span>
+                <span>Last session</span>
+                <span className="text-[var(--neon-emerald)]">Ready</span>
               </div>
             </div>
           )}

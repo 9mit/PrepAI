@@ -28,6 +28,14 @@ const Layout: React.FC<LayoutProps> = ({ children, currentRoute, user, onNavigat
           <div className="max-w-7xl mx-auto p-4 md:p-8 lg:p-12 relative z-10 w-full animate-fadeIn font-sans">
             {children}
           </div>
+          <footer className="relative z-10 border-t border-[rgba(255,255,255,0.05)] px-4 md:px-8 py-4 flex flex-wrap gap-4 justify-center font-mono text-[9px] uppercase tracking-widest text-[var(--text-muted)]">
+            <button type="button" className="hover:text-white" onClick={() => onNavigate(AppRoute.PRIVACY)}>
+              Privacy
+            </button>
+            <button type="button" className="hover:text-white" onClick={() => onNavigate(AppRoute.TERMS)}>
+              Terms
+            </button>
+          </footer>
         </div>
       </main>
     </div>

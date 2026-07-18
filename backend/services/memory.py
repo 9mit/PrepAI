@@ -87,8 +87,26 @@ async def save_session(session_state: SessionState) -> None:
     _memory_set(session_state.session_id, data)
 
 
-async def create_session(session_id: str, target_role: str) -> SessionState:
-    session = SessionState(session_id=session_id, target_role=target_role)
+async def create_session(
+    session_id: str,
+    target_role: str,
+    job_description: str = "",
+    resume_context: str = "",
+    interview_field: str = "",
+    company_style: str = "",
+    interview_mode: str = "",
+    domain_pack: str = "",
+) -> SessionState:
+    session = SessionState(
+        session_id=session_id,
+        target_role=target_role,
+        job_description=job_description or "",
+        resume_context=resume_context or "",
+        interview_field=interview_field or "",
+        company_style=company_style or "",
+        interview_mode=interview_mode or "",
+        domain_pack=domain_pack or "",
+    )
     await save_session(session)
     return session
 

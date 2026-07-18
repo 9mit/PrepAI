@@ -3,6 +3,8 @@
  * and attaches it to all protected requests. Token lives in sessionStorage only.
  */
 
+import { track } from './telemetry';
+
 const API_URL = import.meta.env.VITE_API_URL || '';
 const TOKEN_KEY = 'prepai_access_token';
 const EXP_KEY = 'prepai_access_exp';
@@ -37,6 +39,7 @@ export async function ensureAccessToken(): Promise<string> {
     body: '{}',
   });
   if (!response.ok) {
+    track('api_error', { path: '/auth/session', status: response.status });
     throw new Error('Failed to obtain API access token');
   }
   const data = (await response.json()) as TokenResponse;
@@ -50,15 +53,21 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   if (!headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const started = performance.now();
+  let response = await fetch(`${API_URL}${path}`, { ...init, headers });
 
-  // One retry on 401 with a fresh token
   if (response.status === 401) {
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(EXP_KEY);
     const fresh = await ensureAccessToken();
     headers.set('Authorization', `Bearer ${fresh}`);
-    return fetch(`${API_URL}${path}`, { ...init, headers });
+    response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  }
+
+  const ms = Math.round(performance.now() - started);
+  track('api_latency', { path: path.split('?')[0], ms });
+  if (!response.ok && response.status >= 500) {
+    track('api_error', { path: path.split('?')[0], status: response.status });
   }
   return response;
 }

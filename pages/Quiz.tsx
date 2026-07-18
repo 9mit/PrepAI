@@ -62,7 +62,7 @@ const QuizPage: React.FC<QuizPageProps> = ({ onNavigate }) => {
                 >
                     {error && (
                         <div className="max-w-4xl mx-auto mb-12 bg-red-500/10 border border-red-500/30 text-red-500 p-8 font-mono text-sm">
-                            <span className="font-bold block mb-2 uppercase text-[10px] tracking-widest">System_Error</span>
+                            <span className="font-bold block mb-2 uppercase text-[10px] tracking-widest">Error</span>
                             {error}
                         </div>
                     )}
@@ -70,12 +70,15 @@ const QuizPage: React.FC<QuizPageProps> = ({ onNavigate }) => {
                     {completedCount > 0 && (
                         <div className="max-w-4xl mx-auto mb-8 bg-[var(--neon-emerald)]/10 border border-[var(--neon-emerald)]/30 p-6 font-mono text-center">
                             <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--neon-emerald)]">
-                                ✓ {completedCount} Quiz{completedCount > 1 ? 'zes' : ''} Completed
+                                ✓ {completedCount} quiz{completedCount > 1 ? 'zes' : ''} completed
                             </span>
                         </div>
                     )}
 
-                    <QuizSetup onSubmit={handleGenerateQuiz} />
+                    <QuizSetup
+                        onSubmit={handleGenerateQuiz}
+                        onBack={onNavigate ? () => onNavigate(AppRoute.DASHBOARD) : undefined}
+                    />
                 </motion.div>
             )}
 
@@ -89,8 +92,8 @@ const QuizPage: React.FC<QuizPageProps> = ({ onNavigate }) => {
                         </div>
                     </div>
                     <div className="space-y-4">
-                        <h3 className="text-2xl font-mono font-black uppercase tracking-tighter text-white">Generating_Quiz_Matrix...</h3>
-                        <p className="text-[9px] font-mono font-bold uppercase tracking-[0.5em] text-[var(--text-muted)]">Compiling 5 MCQ questions via AI</p>
+                        <h3 className="text-2xl font-mono font-black uppercase tracking-tighter text-white">Building your quiz…</h3>
+                        <p className="text-[9px] font-mono font-bold uppercase tracking-[0.5em] text-[var(--text-muted)]">Creating 5 practice questions</p>
                     </div>
                 </div>
             )}
@@ -113,7 +116,7 @@ const QuizPage: React.FC<QuizPageProps> = ({ onNavigate }) => {
                                 <h2 className="text-4xl font-black uppercase tracking-tighter text-white font-mono mb-2">{quiz.topic}</h2>
                                 <div className="flex items-center gap-3">
                                     <div className="h-[1px] w-8 bg-[var(--neon-emerald)]"></div>
-                                    <p className="text-[9px] font-black uppercase tracking-[0.4em] text-[var(--neon-emerald)]">Daily_Challenge_Active</p>
+                                    <p className="text-[9px] font-black uppercase tracking-[0.4em] text-[var(--neon-emerald)]">Practice quiz</p>
                                 </div>
                             </div>
                         </div>
@@ -129,7 +132,7 @@ const QuizPage: React.FC<QuizPageProps> = ({ onNavigate }) => {
                                             : 'text-[var(--text-muted)] hover:text-white'
                                         }`}
                                 >
-                                    {tab === 'concept' ? 'Learn_Concept' : 'Quiz_Lab'}
+                                    {tab === 'concept' ? 'Key points' : 'Take quiz'}
                                 </button>
                             ))}
                         </div>
@@ -151,7 +154,7 @@ const QuizPage: React.FC<QuizPageProps> = ({ onNavigate }) => {
                                             <div className="w-10 h-10 border border-[var(--neon-cyan)] flex items-center justify-center bg-[var(--neon-cyan)]/5">
                                                 <i className="fa-solid fa-book text-[var(--neon-cyan)]"></i>
                                             </div>
-                                            <h3 className="text-xl font-mono font-black uppercase tracking-tight text-white">Core_Concept</h3>
+                                            <h3 className="text-xl font-mono font-black uppercase tracking-tight text-white">Overview</h3>
                                         </div>
                                         <div className="text-sm text-[var(--text-secondary)] leading-relaxed font-mono whitespace-pre-wrap">
                                             {quiz.conceptExplanation}
@@ -161,9 +164,9 @@ const QuizPage: React.FC<QuizPageProps> = ({ onNavigate }) => {
                                     <div className="bg-[var(--bg-surface)] p-10 border border-[rgba(255,255,255,0.05)]">
                                         <div className="flex items-center gap-4 mb-6">
                                             <div className="w-10 h-10 border border-[var(--neon-orange)] flex items-center justify-center bg-[var(--neon-orange)]/5">
-                                                <i className="fa-solid fa-code text-[var(--neon-orange)]"></i>
+                                                <i className="fa-solid fa-bookmark text-[var(--neon-orange)]"></i>
                                             </div>
-                                            <h3 className="text-xl font-mono font-black uppercase tracking-tight text-white">Syntax_Reference</h3>
+                                            <h3 className="text-xl font-mono font-black uppercase tracking-tight text-white">Key frameworks / concepts</h3>
                                         </div>
                                         <div className="bg-black p-8 border border-[rgba(255,255,255,0.05)] font-mono text-xs text-[var(--neon-emerald)] whitespace-pre-wrap leading-relaxed">
                                             {quiz.syntaxGuide}
@@ -173,16 +176,16 @@ const QuizPage: React.FC<QuizPageProps> = ({ onNavigate }) => {
 
                                 <div className="space-y-8">
                                     <div className="bg-[var(--bg-surface)] border border-[var(--neon-emerald)]/20 p-8">
-                                        <h4 className="font-mono text-sm font-black uppercase tracking-widest mb-4 text-[var(--neon-emerald)]">Ready to Test?</h4>
+                                        <h4 className="font-mono text-sm font-black uppercase tracking-widest mb-4 text-[var(--neon-emerald)]">Ready to practice?</h4>
                                         <p className="text-xs text-[var(--text-secondary)] leading-relaxed font-mono mb-6">
-                                            You'll face 5 multiple-choice questions ranging from beginner to advanced. Score 60% or higher to mark this topic as completed.
+                                            You'll get 5 multiple-choice questions from easy to hard. Score 60% or higher to mark this topic complete.
                                         </p>
                                         <button
                                             onClick={() => setActiveTab('quiz')}
                                             className="btn-primary w-full py-4 text-[10px] tracking-[0.3em]"
                                             style={{ background: 'var(--neon-emerald)', color: '#000' }}
                                         >
-                                            Start_Quiz →
+                                            Start quiz →
                                         </button>
                                     </div>
 
@@ -191,7 +194,7 @@ const QuizPage: React.FC<QuizPageProps> = ({ onNavigate }) => {
                                             onClick={handleReset}
                                             className="w-full text-[9px] font-mono font-bold uppercase tracking-widest text-[var(--text-muted)] hover:text-red-500 transition-colors"
                                         >
-                                            Reset_Quiz
+                                            Start over
                                         </button>
                                     </div>
                                 </div>
@@ -208,7 +211,11 @@ const QuizPage: React.FC<QuizPageProps> = ({ onNavigate }) => {
                                 <QuizLab
                                     topic={quiz.topic}
                                     questions={quiz.quizQuestions}
+                                    difficulty={quiz.difficulty}
                                     onComplete={handleQuizComplete}
+                                    onRetryTopic={(t) => {
+                                        void handleGenerateQuiz(t);
+                                    }}
                                 />
                             </motion.div>
                         )}

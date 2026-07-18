@@ -17,12 +17,18 @@ export interface ParsedResume {
     projects: string;
 }
 
-// Common tech skills to look for
+// Common skills across tech and business fields
 const SKILL_KEYWORDS = [
     'React', 'Vue', 'Angular', 'Node.js', 'Python', 'Java', 'C++', 'TypeScript', 'JavaScript',
     'HTML', 'CSS', 'SQL', 'NoSQL', 'MongoDB', 'PostgreSQL', 'AWS', 'Azure', 'GCP', 'Docker',
     'Kubernetes', 'Git', 'CI/CD', 'Agile', 'Scrum', 'REST', 'GraphQL', 'Next.js', 'Redux',
-    'Machine Learning', 'AI', 'Data Science', 'TensorFlow', 'PyTorch'
+    'Machine Learning', 'AI', 'Data Science', 'TensorFlow', 'PyTorch',
+    'Excel', 'PowerPoint', 'Tableau', 'Power BI', 'P&L', 'PnL', 'SWOT', 'Porter', 'Five Forces',
+    'Financial Modeling', 'Valuation', 'Accounting', 'Budgeting', 'Forecasting',
+    'Marketing', 'Brand Strategy', 'Go-to-Market', 'GTM', 'SEO', 'SEM', 'CRM', 'Salesforce',
+    'Recruiting', 'Talent Acquisition', 'HR', 'People Operations', 'Compensation', 'Onboarding',
+    'Negotiation', 'Leadership', 'Stakeholder Management', 'Project Management', 'Product Management',
+    'Case Interview', 'Consulting', 'Strategy', 'Operations', 'Supply Chain', 'MBA'
 ];
 
 interface PdfTextItem {

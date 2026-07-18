@@ -36,6 +36,10 @@ PrepAI v2 specializes in adaptive AI-driven interview coaching because generic c
 
 Built with a **developer-first mindset**, featuring a **high-contrast dark theme**, **monospaced typography**, and a **privacy-first local architecture**.
 
+## Documentation
+
+See the [`docs/`](docs/) folder: architecture, interview engine, scoring, prompts, domain packs, recommendations, quiz, testing, deployment, [Hugging Face Spaces](docs/HF_SPACES.md), environment, launch checklist, and growth/user-testing playbooks.
+
 ---
 
 ## 🚀 Key Features

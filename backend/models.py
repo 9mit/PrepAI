@@ -37,11 +37,29 @@ class SessionState(BaseModel):
     running_scores: Dict[str, float] = {"accuracy": 0, "depth": 0, "clarity": 0, "confidence": 0}
     follow_ups_used: int = 0
     is_completed: bool = False
+    answer_summaries: List[str] = []
+    topics_covered: List[str] = []
+    claims_made: List[str] = []
+    open_threads: List[str] = []
+    job_description: str = ""
+    resume_context: str = ""
+    interview_field: str = ""
+    company_style: str = ""
+    interview_mode: str = ""
+    domain_pack: str = ""
+    strong_advances: int = 0
+    intensity_nudge: str = ""
 
 
 class StartSessionRequest(BaseModel):
     role: str = Field(..., description="Target role for the interview", max_length=200)
     session_id: str = Field(..., description="Unique session identifier", max_length=128)
+    job_description: str = Field("", max_length=4000)
+    resume_context: str = Field("", max_length=3000)
+    interview_field: str = Field("", max_length=64)
+    company_style: str = Field("", max_length=64)
+    interview_mode: str = Field("", max_length=64)
+    domain_pack: str = Field("", max_length=64)
 
 
 class NextQuestionRequest(BaseModel):
@@ -98,12 +116,38 @@ class InterviewAnalyzeRequest(BaseModel):
     transcription: List[str]
     role: str = Field(..., max_length=200)
     company: str = Field(..., max_length=200)
+    job_description: str = Field("", max_length=4000)
+    resume_context: str = Field("", max_length=3000)
+    interview_field: str = Field("", max_length=64)
+    company_style: str = Field("", max_length=64)
+    interview_mode: str = Field("", max_length=64)
+    domain_pack: str = Field("", max_length=64)
+
+
+class CategoryExplanation(BaseModel):
+    category: str = ""
+    why: str = ""
+    tip: str = ""
+    betterAnswer: str = ""
+    excellentAnswer: str = ""
+    tips: List[str] = []
+    commonMistakes: List[str] = []
+
+
+class SampleAnswerItem(BaseModel):
+    questionTheme: str = ""
+    example: str = ""
 
 
 class InterviewAnalyzeResponse(BaseModel):
     overallScore: int
     categories: List[InterviewAnalyzeCategory]
     feedback: List[str]
+    strengths: List[str] = []
+    weaknesses: List[str] = []
+    categoryExplanations: List[CategoryExplanation] = []
+    improvementPlan: List[str] = []
+    sampleAnswers: List[SampleAnswerItem] = []
 
 
 class InterviewClientReportRequest(BaseModel):
@@ -115,3 +159,12 @@ class InterviewClientReportRequest(BaseModel):
     categories: List[InterviewAnalyzeCategory] = []
     feedback: List[str] = []
     date: Optional[str] = None
+    strengths: List[str] = []
+    weaknesses: List[str] = []
+    improvement_plan: List[str] = []
+
+
+class FeedbackRequest(BaseModel):
+    type: Literal["bug", "feature", "rating", "idea"] = "idea"
+    message: str = Field(..., min_length=1, max_length=4000)
+    rating: Optional[int] = Field(None, ge=1, le=5)

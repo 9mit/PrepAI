@@ -26,14 +26,14 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRoute, user, onNavigate, onLog
           </div>
           <div>
             <span className="text-xl font-mono font-black tracking-tighter text-white block leading-none">PrepAI</span>
-            <span className="text-[9px] font-mono uppercase tracking-[0.4em] text-[var(--neon-emerald)]">OS_v1.0</span>
+            <span className="text-[9px] font-mono uppercase tracking-[0.4em] text-[var(--neon-emerald)]">Interview Coach</span>
           </div>
         </div>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 px-4 space-y-1 py-4">
-        <div className="text-[9px] font-mono font-bold uppercase tracking-[0.4em] px-4 py-3 text-[var(--text-muted)]">System.Navigation</div>
+        <div className="text-[9px] font-mono font-bold uppercase tracking-[0.4em] px-4 py-3 text-[var(--text-muted)]">Menu</div>
         {NAVIGATION_ITEMS.map((item) => (
           <button
             key={item.id}
@@ -81,8 +81,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRoute, user, onNavigate, onLog
                 {user ? getInitials(user.name) : '??'}
               </div>
               <div className="flex-1 overflow-hidden">
-                <p className="text-xs font-mono font-bold truncate text-white uppercase">{user?.name || 'Local_Host'}</p>
-                <p className="text-[10px] font-mono truncate tracking-tight text-[var(--text-muted)] lowercase">{user?.email || 'unauthorized'}</p>
+                <p className="text-xs font-mono font-bold truncate text-white uppercase">{user?.name || 'Guest'}</p>
+                <p className="text-[10px] font-mono truncate tracking-tight text-[var(--text-muted)] lowercase">{user?.email || 'not signed in'}</p>
               </div>
             </button>
 
@@ -92,7 +92,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRoute, user, onNavigate, onLog
                  border border-red-500/20 text-red-500/50 hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-500"
             >
               <i className="fa-solid fa-power-off"></i>
-              Terminate_Auth
+              Sign out
             </button>
           </div>
         </div>

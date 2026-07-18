@@ -1,11 +1,26 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { streamChatWithInterviewer, analyzeInterview, ChatMessage } from '../services/groq';
 import { fetchUserRepos, GithubRepo } from '../services/github';
+import { CategoryExplanation, SampleAnswer } from '../types';
 
 export interface InterviewSessionAnalysis {
     overallScore: number;
     categories: { category: string; score: number; fullMark: number }[];
     feedback: string[];
+    strengths?: string[];
+    weaknesses?: string[];
+    categoryExplanations?: CategoryExplanation[];
+    improvementPlan?: string[];
+    sampleAnswers?: SampleAnswer[];
+}
+
+export interface AnalyzeExtras {
+    jobDescription?: string;
+    resumeContext?: string;
+    interviewField?: string;
+    companyStyle?: string;
+    interviewMode?: string;
+    domainPack?: string;
 }
 
 export const useInterviewSession = () => {
@@ -25,7 +40,7 @@ export const useInterviewSession = () => {
                 setGithubData(repos.slice(0, 5));
             }
         } catch {
-            // Non-fatal: interview continues without GitHub context
+            // Non-fatal
         } finally {
             setIsGithubLoading(false);
         }
@@ -54,11 +69,12 @@ export const useInterviewSession = () => {
     const runAnalysis = useCallback(async (
         transcription: string[],
         role: string,
-        company: string
+        company: string,
+        extras?: AnalyzeExtras,
     ): Promise<InterviewSessionAnalysis> => {
         setIsAnalyzing(true);
         try {
-            const analysis = await analyzeInterview(transcription, role, company);
+            const analysis = await analyzeInterview(transcription, role, company, extras) as InterviewSessionAnalysis;
             setAnalysisResult(analysis);
             return analysis;
         } catch {
@@ -66,12 +82,15 @@ export const useInterviewSession = () => {
                 overallScore: 70,
                 categories: [
                     { category: 'Communication', score: 70, fullMark: 100 },
-                    { category: 'Technical Knowledge', score: 70, fullMark: 100 },
+                    { category: 'Role Knowledge', score: 70, fullMark: 100 },
                     { category: 'Problem Solving', score: 70, fullMark: 100 },
                     { category: 'Cultural Fit', score: 70, fullMark: 100 },
                     { category: 'Confidence', score: 70, fullMark: 100 },
                 ],
                 feedback: ['Interview completed. Analysis could not be generated.'],
+                strengths: [],
+                weaknesses: [],
+                improvementPlan: ['Retry a practice interview focusing on structured answers.'],
             };
             setAnalysisResult(fallback);
             return fallback;

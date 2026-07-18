@@ -1,48 +1,116 @@
 import { apiFetch } from './apiClient';
-import { Quiz, QuizQuestion } from '../types';
+import { Quiz, QuizQuestion, QuizTopicStats } from '../types';
 
 const USE_OLLAMA = import.meta.env.VITE_USE_OLLAMA === 'true';
 const OLLAMA_URL = import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434';
 const OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL || 'llama3.2';
 
-const generatePrompt = (topic: string) => {
-    return `You are an elite technical quiz generator and expert educator.
-Generate a comprehensive quiz for the topic: "${topic}".
+type Difficulty = 'easy' | 'medium' | 'hard';
+
+export type QuizDifficulty = Difficulty;
+
+export function getQuizTopicStats(): QuizTopicStats[] {
+    try {
+        return JSON.parse(localStorage.getItem('quiz_topic_stats') || '[]') as QuizTopicStats[];
+    } catch {
+        return [];
+    }
+}
+
+export function getTopicStat(topic: string): QuizTopicStats | undefined {
+    return getQuizTopicStats().find((s) => s.topic.toLowerCase() === topic.toLowerCase());
+}
+
+export function suggestDifficulty(topic: string): Difficulty {
+    const stat = getTopicStat(topic);
+    if (!stat) return 'medium';
+    if (stat.avgScore < 60) return 'easy';
+    if (stat.avgScore >= 80) return 'hard';
+    return 'medium';
+}
+
+export function recordQuizAttempt(topic: string, percentage: number, difficulty: Difficulty): void {
+    const stats = getQuizTopicStats();
+    const idx = stats.findIndex((s) => s.topic.toLowerCase() === topic.toLowerCase());
+    if (idx >= 0) {
+        const prev = stats[idx];
+        const attempts = prev.attempts + 1;
+        const avgScore = Math.round(((prev.avgScore * prev.attempts) + percentage) / attempts);
+        stats[idx] = {
+            ...prev,
+            attempts,
+            avgScore,
+            lastDifficulty: difficulty,
+            lastScore: percentage,
+            updatedAt: new Date().toISOString(),
+        };
+    } else {
+        stats.push({
+            topic,
+            attempts: 1,
+            avgScore: percentage,
+            lastDifficulty: difficulty,
+            lastScore: percentage,
+            updatedAt: new Date().toISOString(),
+        });
+    }
+    localStorage.setItem('quiz_topic_stats', JSON.stringify(stats));
+}
+
+export function recommendNextTopics(currentTopic: string, limit = 3): string[] {
+    const weak = getQuizTopicStats()
+        .filter((s) => s.topic.toLowerCase() !== currentTopic.toLowerCase())
+        .sort((a, b) => a.avgScore - b.avgScore)
+        .map((s) => s.topic);
+    const defaults = ['STAR Method', 'Go-to-Market Strategy', 'Financial Statements Basics', 'Negotiation Fundamentals'];
+    return [...weak, ...defaults.filter((t) => !weak.includes(t) && t.toLowerCase() !== currentTopic.toLowerCase())].slice(0, limit);
+}
+
+const generatePrompt = (topic: string, difficulty: Difficulty) => {
+    const difficultyGuide =
+        difficulty === 'easy'
+            ? 'Keep questions beginner-friendly with clear, unambiguous wording.'
+            : difficulty === 'hard'
+                ? 'Make questions advanced and scenario-based; require nuanced judgment.'
+                : 'Mix beginner to intermediate with at least two scenario-based questions.';
+
+    return `You are a professional interview prep quiz generator and educator.
+Generate a clear quiz for the topic: "${topic}".
+Difficulty level: ${difficulty}. ${difficultyGuide}
 
 REQUIREMENTS:
-- Provide a deep ELI5 explanation of the concept
-- Include exact SYNTAX guides with code examples (if applicable)
-- Create exactly 5 multiple-choice questions (MCQ)
+- Provide a clear ELI5 explanation of the concept
+- Include key frameworks / concepts with examples (code syntax only if the topic is technical)
+- Create exactly 5 multiple-choice questions (MCQ), including scenario-based items where useful
 - Each question must have 4 options
-- Questions should range from beginner to advanced
-- Provide clear explanations for correct answers
+- Provide clear explanations for correct answers (why right and why others are wrong, briefly)
 
 OUTPUT FORMAT: Valid JSON only. No markdown, no explanations outside JSON.
 
 JSON Schema:
 {
   "topic": "${topic}",
+  "difficulty": "${difficulty}",
   "conceptExplanation": "Deep ELI5 explanation of the core concept (2-3 paragraphs)",
-  "syntaxGuide": "Exact syntax and code structure with examples (if applicable)",
+  "syntaxGuide": "Key frameworks, formulas, or concepts with examples (code only if applicable)",
   "quizQuestions": [
     {
       "question": "The quiz question text",
       "options": ["Option A", "Option B", "Option C", "Option D"],
       "correctAnswer": 0,
-      "explanation": "Why this answer is correct and brief explanation"
+      "explanation": "Why this answer is correct and brief explanation of distractors"
     }
   ]
 }
 
 IMPORTANT: 
 - correctAnswer is the index (0-3) of the correct option
-- Make questions progressively harder (Q1: easy, Q5: advanced)
 - Avoid ambiguous questions
 - Return ONLY the JSON object`;
 };
 
-async function generateWithOllama(topic: string): Promise<Quiz> {
-    const prompt = generatePrompt(topic);
+async function generateWithOllama(topic: string, difficulty: Difficulty): Promise<Quiz> {
+    const prompt = generatePrompt(topic, difficulty);
 
     const response = await fetch(`${OLLAMA_URL}/api/generate`, {
         method: 'POST',
@@ -72,11 +140,11 @@ async function generateWithOllama(topic: string): Promise<Quiz> {
     return parseQuizResponse(content);
 }
 
-async function fetchQuizContentFromBackend(topic: string, reinforceJson: boolean): Promise<string> {
-    const systemPrompt = generatePrompt(topic);
+async function fetchQuizContentFromBackend(topic: string, difficulty: Difficulty, reinforceJson: boolean): Promise<string> {
+    const systemPrompt = generatePrompt(topic, difficulty);
     const userContent = reinforceJson
-        ? `Generate a complete quiz with exactly 5 MCQ questions for: ${topic}. Respond with ONLY valid JSON matching the schema.`
-        : `Generate a complete quiz with 5 MCQ questions for: ${topic}`;
+        ? `Generate a complete quiz with exactly 5 MCQ questions for: ${topic} at ${difficulty} difficulty. Respond with ONLY valid JSON matching the schema.`
+        : `Generate a complete quiz with 5 MCQ questions for: ${topic} (${difficulty})`;
 
     const response = await apiFetch('/interview/chat', {
         method: 'POST',
@@ -126,13 +194,17 @@ async function fetchQuizContentFromBackend(topic: string, reinforceJson: boolean
     return content;
 }
 
-async function generateWithGroq(topic: string): Promise<Quiz> {
-    let content = await fetchQuizContentFromBackend(topic, false);
+async function generateWithGroq(topic: string, difficulty: Difficulty): Promise<Quiz> {
+    let content = await fetchQuizContentFromBackend(topic, difficulty, false);
     try {
-        return parseQuizResponse(content);
+        const quiz = parseQuizResponse(content);
+        quiz.difficulty = difficulty;
+        return quiz;
     } catch {
-        content = await fetchQuizContentFromBackend(topic, true);
-        return parseQuizResponse(content);
+        content = await fetchQuizContentFromBackend(topic, difficulty, true);
+        const quiz = parseQuizResponse(content);
+        quiz.difficulty = difficulty;
+        return quiz;
     }
 }
 
@@ -229,20 +301,31 @@ export function isQuizCompleted(topic: string): boolean {
     return completed.includes(topic.toLowerCase());
 }
 
+const quizPromptCache = new Map<string, { quiz: Quiz; expires: number }>();
+const QUIZ_CACHE_TTL_MS = 5 * 60 * 1000;
+
 export async function generateQuiz(topic: string): Promise<Quiz> {
-    if (isQuizCompleted(topic)) {
-        throw new Error('Quiz_Already_Completed: You have already completed a quiz on this topic. Try a different subject.');
+    const difficulty = suggestDifficulty(topic);
+    const cacheKey = `${topic.toLowerCase()}::${difficulty}`;
+    const cached = quizPromptCache.get(cacheKey);
+    if (cached && cached.expires > Date.now()) {
+        return { ...cached.quiz };
     }
 
     try {
+        let quiz: Quiz;
         if (USE_OLLAMA) {
-            return await generateWithOllama(topic);
+            quiz = await generateWithOllama(topic, difficulty);
+        } else {
+            quiz = await generateWithGroq(topic, difficulty);
         }
-        return await generateWithGroq(topic);
+        quiz.difficulty = difficulty;
+        quizPromptCache.set(cacheKey, { quiz, expires: Date.now() + QUIZ_CACHE_TTL_MS });
+        return quiz;
     } catch (error) {
         throw new Error(
             error instanceof Error
-                ? `Quiz_Generation_Error: ${error.message}`
+                ? `Quiz generation failed: ${error.message}`
                 : 'Failed to generate quiz. Please try again.'
         );
     }
