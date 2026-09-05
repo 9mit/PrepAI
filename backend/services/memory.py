@@ -1,10 +1,14 @@
 import json
 import time
-import redis.asyncio as redis
 import os
 import logging
 from typing import Optional, Dict, Tuple
 from models import SessionState
+
+try:
+    import redis.asyncio as redis
+except ImportError:
+    redis = None
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +22,11 @@ SESSION_TTL_SEC = 3600
 
 async def init_redis():
     global redis_client, _redis_available
+    if redis is None:
+        logger.info("Redis package not installed; using in-memory session store")
+        redis_client = None
+        _redis_available = False
+        return
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
     try:
         redis_client = redis.from_url(redis_url, decode_responses=True)
@@ -42,7 +51,12 @@ def _memory_get(session_id: str) -> Optional[str]:
 
 
 def _memory_set(session_id: str, data: str) -> None:
-    _memory_store[session_id] = (data, time.time() + SESSION_TTL_SEC)
+    now = time.time()
+    if len(_memory_store) > 100:
+        expired = [sid for sid, (_, exp) in _memory_store.items() if now > exp]
+        for sid in expired:
+            _memory_store.pop(sid, None)
+    _memory_store[session_id] = (data, now + SESSION_TTL_SEC)
 
 
 async def get_session(session_id: str) -> Optional[SessionState]:
@@ -90,6 +104,7 @@ async def save_session(session_state: SessionState) -> None:
 async def create_session(
     session_id: str,
     target_role: str,
+    target_questions: int = 5,
     job_description: str = "",
     resume_context: str = "",
     interview_field: str = "",
@@ -100,6 +115,7 @@ async def create_session(
     session = SessionState(
         session_id=session_id,
         target_role=target_role,
+        target_questions=target_questions,
         job_description=job_description or "",
         resume_context=resume_context or "",
         interview_field=interview_field or "",

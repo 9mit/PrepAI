@@ -1,8 +1,7 @@
-// @ts-nocheck
-import React from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 
 interface Props {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 interface State {
@@ -10,18 +9,19 @@ interface State {
   message: string;
 }
 
-export default class ErrorBoundary extends React.Component {
-  state: State = { hasError: false, message: '' };
+export default class ErrorBoundary extends React.Component<Props, State> {
+  override state: State = { hasError: false, message: '' };
 
-  static getDerivedStateFromError(error) {
-    return { hasError: true, message: (error && error.message) || 'Unexpected error' };
+  static getDerivedStateFromError(error: unknown): State {
+    const message = error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unexpected error';
+    return { hasError: true, message };
   }
 
-  componentDidCatch(error, info) {
-    console.error('PrepAI ErrorBoundary', error, info && info.componentStack);
+  override componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('PrepAI ErrorBoundary', error, info?.componentStack);
   }
 
-  render() {
+  override render(): ReactNode {
     if (this.state.hasError) {
       return (
         <div className="min-h-[40vh] flex items-center justify-center p-8 font-mono">

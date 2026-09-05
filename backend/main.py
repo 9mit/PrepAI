@@ -157,9 +157,26 @@ app.add_middleware(
 )
 
 
+_groq_client: Optional[AsyncGroq] = None
+
+
+def get_groq_client() -> AsyncGroq:
+    global _groq_client
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY is not configured")
+    if _groq_client is None:
+        _groq_client = AsyncGroq(api_key=api_key)
+    return _groq_client
+
+
 def _enforce_rate_limit(request: Request) -> None:
     ip = trusted_client_ip(request)
     now = time.time()
+    if len(_rate_buckets) > 500:
+        stale = [k for k, timestamps in _rate_buckets.items() if not timestamps or (now - timestamps[-1] >= RATE_LIMIT_WINDOW_SEC)]
+        for k in stale:
+            _rate_buckets.pop(k, None)
     bucket = [t for t in _rate_buckets[ip] if now - t < RATE_LIMIT_WINDOW_SEC]
     if len(bucket) >= RATE_LIMIT_MAX_REQUESTS:
         audit_event("rate_limited", request, {"ip": ip})
@@ -196,6 +213,7 @@ async def start_session(
     session = await create_session(
         request.session_id,
         request.role,
+        target_questions=request.target_questions,
         job_description=request.job_description,
         resume_context=request.resume_context,
         interview_field=request.interview_field,
@@ -238,10 +256,13 @@ async def evaluate_turn(
         if len(audio_bytes) > MAX_AUDIO_BYTES:
             raise HTTPException(status_code=413, detail="Audio file too large (max 20MB)")
         if audio_bytes:
-            answer = await transcribe_audio(audio_bytes)
+            transcribed = await transcribe_audio(audio_bytes)
+            if not transcribed or not transcribed.strip():
+                raise HTTPException(status_code=502, detail="Audio transcription failed or produced empty text")
+            answer = transcribed
 
     if not answer or not str(answer).strip():
-        raise HTTPException(status_code=400, detail="No answer provided or transcription failed")
+        raise HTTPException(status_code=400, detail="No answer provided")
 
     score = await evaluate_answer(question_text, answer)
 
@@ -299,7 +320,8 @@ async def evaluate_turn(
         follow_up = await generate_follow_up(question_text, answer, score, session)
         message = "Let's try that again with a hint."
 
-    if next_action == "advance" and len(session.questions_asked) >= 3:
+    target_q = getattr(session, "target_questions", 5) or 5
+    if next_action == "advance" and len(session.questions_asked) >= target_q:
         next_action = "end"
         session.is_completed = True
         message = "Interview completed. Generating report."
@@ -372,7 +394,7 @@ async def parse_resume(
     if len(request.text) > MAX_RESUME_CHARS:
         raise HTTPException(status_code=413, detail="Resume text too large")
 
-    client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    client = get_groq_client()
     system_prompt = SYSTEM_GUARDRAIL + PARSE_RESUME_SYSTEM
     user_prompt = build_parse_resume_user_prompt(request.text[:MAX_RESUME_CHARS])
 
@@ -395,7 +417,7 @@ async def parse_resume(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Resume parse error: %s", type(e).__name__)
+        logger.error("Resume parse error: %s", e, exc_info=True)
         audit_event("parse_resume_error", http_request, {"error": type(e).__name__})
         raise HTTPException(status_code=500, detail="Failed to parse resume")
 
@@ -412,7 +434,7 @@ async def interview_chat(
     if len(request.messages) > 80:
         raise HTTPException(status_code=413, detail="Too many messages")
 
-    client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    client = get_groq_client()
     guarded_system = SYSTEM_GUARDRAIL + request.system_prompt
     full_messages = [{"role": "system", "content": guarded_system}] + [
         {"role": m.role, "content": m.content[:8000]}
@@ -435,7 +457,7 @@ async def interview_chat(
                     yield f"data: {json.dumps({'token': token})}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as e:
-            logger.error("Interview chat stream error: %s", type(e).__name__)
+            logger.error("Interview chat stream error: %s", e, exc_info=True)
             yield f"data: {json.dumps({'error': 'Stream failed'})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -451,7 +473,7 @@ async def interview_analyze(
     if len(request.transcription) > MAX_TRANSCRIPT_LINES:
         raise HTTPException(status_code=413, detail="Transcript too long")
 
-    client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    client = get_groq_client()
     transcript_text = "\n".join(request.transcription[:MAX_TRANSCRIPT_LINES])
     context_extra = ""
     if request.job_description:
@@ -491,9 +513,9 @@ async def interview_analyze(
         data = json.loads(content)
         return InterviewAnalyzeResponse(**data)
     except ValidationError as e:
-        logger.error("Interview analysis validation error: %s", type(e).__name__)
+        logger.error("Interview analysis validation error: %s", e)
     except Exception as e:
-        logger.error("Interview analysis error: %s", type(e).__name__)
+        logger.error("Interview analysis error: %s", e, exc_info=True)
 
     return InterviewAnalyzeResponse(
         overallScore=70,

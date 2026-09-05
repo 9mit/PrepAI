@@ -5,7 +5,11 @@ const STREAK_KEY = 'prepai_practice_streak';
 const LAST_PRACTICE_KEY = 'prepai_last_practice_day';
 
 function dayKey(d = new Date()): string {
-  return d.toISOString().slice(0, 10);
+  try {
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
 }
 
 export function recordPracticeActivity(): { streak: number; isNewDay: boolean } {
@@ -70,12 +74,15 @@ export function getWeeklyChallenge(date = new Date()): {
   };
 }
 
-export function getMonthlySummary(history: { overallScore: number; date: string; weaknesses?: string[] }[]): {
+export function getMonthlySummary(
+  history: { overallScore: number; date: string; weaknesses?: string[] }[],
+  referenceDate = new Date()
+): {
   sessions: number;
   avgScore: number;
   topWeakness: string;
 } {
-  const month = dayKey().slice(0, 7);
+  const month = dayKey(referenceDate).slice(0, 7);
   const inMonth = history.filter((h) => (h.date || '').startsWith(month));
   if (inMonth.length === 0) {
     return { sessions: 0, avgScore: 0, topWeakness: 'No sessions this month' };

@@ -1,9 +1,14 @@
 import io
 import asyncio
 import logging
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
 from models import SessionState, InterviewClientReportRequest
+
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +57,9 @@ def _draw_pdf(
     lines: list[tuple[str, int]],
     study_areas: list[str],
 ) -> bytes:
+    if not REPORTLAB_AVAILABLE:
+        logger.warning("ReportLab is not installed; PDF generation skipped")
+        return b""
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     y = 750

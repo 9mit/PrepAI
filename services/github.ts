@@ -75,6 +75,31 @@ export async function fetchRepoContents(username: string, repo: string, path: st
     }
 }
 
+export function decodeBase64Utf8(base64: string): string {
+    try {
+        const cleaned = base64.replace(/\s/g, '');
+        const binaryStr = atob(cleaned);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+        }
+        return new TextDecoder('utf-8').decode(bytes);
+    } catch {
+        return '';
+    }
+}
+
+export function extractGithubUsername(input: string): string | null {
+    if (!input || !input.trim()) return null;
+    let trimmed = input.trim();
+    trimmed = trimmed.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+    if (trimmed.toLowerCase().startsWith('github.com/')) {
+        trimmed = trimmed.slice('github.com/'.length);
+    }
+    const username = trimmed.split('/')[0]?.split('?')[0]?.replace(/^@/, '') || '';
+    return /^[a-zA-Z0-9-]+$/.test(username) ? username : null;
+}
+
 export async function fetchFileContent(url: string): Promise<string> {
     if (contentCache.has(url)) return contentCache.get(url) as string;
 
@@ -85,8 +110,8 @@ export async function fetchFileContent(url: string): Promise<string> {
 
         // GitHub API returns content in Base64
         let content = '';
-        if (data.encoding === 'base64') {
-            content = atob(data.content.replace(/\n/g, ''));
+        if (data.encoding === 'base64' && typeof data.content === 'string') {
+            content = decodeBase64Utf8(data.content);
         } else {
             content = data.content || '';
         }

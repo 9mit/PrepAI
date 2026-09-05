@@ -7,6 +7,19 @@ from prompts.follow_up import build_follow_up_system_prompt
 logger = logging.getLogger(__name__)
 
 
+_client = None
+
+
+def _get_client():
+    global _client
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        return None
+    if _client is None:
+        _client = AsyncGroq(api_key=api_key)
+    return _client
+
+
 async def generate_follow_up(
     question: str,
     answer: str,
@@ -61,7 +74,12 @@ async def generate_follow_up(
         context_block="\n".join(context_bits),
     )
 
-    client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    client = _get_client()
+    if client is None:
+        return FollowUp(
+            type=follow_up_type,
+            question="Could you elaborate with a specific example and a measurable outcome?",
+        )
     try:
         chat_completion = await client.chat.completions.create(
             messages=[

@@ -11,11 +11,31 @@ logger = logging.getLogger(__name__)
 EVALUATOR_MAX_TOKENS = 400
 
 
+_client: Optional[AsyncGroq] = None
+
+
+def _get_client() -> Optional[AsyncGroq]:
+    global _client
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        return None
+    if _client is None:
+        _client = AsyncGroq(api_key=api_key)
+    return _client
+
+
 async def evaluate_answer(question: str, answer: str) -> AnswerScore:
     """
     Evaluates an answer against a question using Groq API and returns a structured Pydantic object.
     """
-    client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    client = _get_client()
+    if client is None:
+        logger.error("GROQ_API_KEY is not configured")
+        return AnswerScore(
+            accuracy=0, depth=0, clarity=0, confidence=0,
+            feedback="Evaluation service configuration error (missing API key).",
+        )
+
     user_prompt = build_evaluator_user_prompt(question, answer[:4000])
 
     try:

@@ -29,18 +29,23 @@ class EvaluationRecord(BaseModel):
     filler_ratio: float = 0.0
 
 
+def _default_running_scores() -> Dict[str, float]:
+    return {"accuracy": 0.0, "depth": 0.0, "clarity": 0.0, "confidence": 0.0}
+
+
 class SessionState(BaseModel):
     session_id: str
     target_role: str
-    questions_asked: List[str] = []
-    evaluation_results: List[EvaluationRecord] = []
-    running_scores: Dict[str, float] = {"accuracy": 0, "depth": 0, "clarity": 0, "confidence": 0}
+    target_questions: int = 5
+    questions_asked: List[str] = Field(default_factory=list)
+    evaluation_results: List[EvaluationRecord] = Field(default_factory=list)
+    running_scores: Dict[str, float] = Field(default_factory=_default_running_scores)
     follow_ups_used: int = 0
     is_completed: bool = False
-    answer_summaries: List[str] = []
-    topics_covered: List[str] = []
-    claims_made: List[str] = []
-    open_threads: List[str] = []
+    answer_summaries: List[str] = Field(default_factory=list)
+    topics_covered: List[str] = Field(default_factory=list)
+    claims_made: List[str] = Field(default_factory=list)
+    open_threads: List[str] = Field(default_factory=list)
     job_description: str = ""
     resume_context: str = ""
     interview_field: str = ""
@@ -54,6 +59,7 @@ class SessionState(BaseModel):
 class StartSessionRequest(BaseModel):
     role: str = Field(..., description="Target role for the interview", max_length=200)
     session_id: str = Field(..., description="Unique session identifier", max_length=128)
+    target_questions: int = Field(5, ge=1, le=20, description="Total questions for the interview session")
     job_description: str = Field("", max_length=4000)
     resume_context: str = Field("", max_length=3000)
     interview_field: str = Field("", max_length=64)

@@ -83,14 +83,24 @@ def verify_access_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid or expired access token") from exc
 
 
+def prune_stale_buckets(buckets: dict[str, list[float]], window_sec: float) -> None:
+    now = time.time()
+    stale_keys = [k for k, timestamps in buckets.items() if not timestamps or (now - timestamps[-1] >= window_sec)]
+    for k in stale_keys:
+        buckets.pop(k, None)
+
+
 def trusted_client_ip(request: Request) -> str:
     """
-    Prefer direct connection IP. Only trust the *rightmost* X-Forwarded-For hop
+    Prefer direct connection IP. Only trust X-Real-IP or the *rightmost* X-Forwarded-For hop
     when TRUST_PROXY=true (nginx terminates TLS / proxy).
     Never use the leftmost client-supplied XFF value (spoofable).
     """
     trust_proxy = os.getenv("TRUST_PROXY", "true").lower() in ("1", "true", "yes")
     if trust_proxy:
+        real_ip = request.headers.get("x-real-ip", "").strip()
+        if real_ip:
+            return real_ip
         forwarded = request.headers.get("x-forwarded-for", "")
         if forwarded:
             hops = [h.strip() for h in forwarded.split(",") if h.strip()]
@@ -102,6 +112,8 @@ def trusted_client_ip(request: Request) -> str:
 
 
 def enforce_issue_rate(ip: str) -> None:
+    if len(_issue_buckets) > 500:
+        prune_stale_buckets(_issue_buckets, AUTH_ISSUE_WINDOW)
     now = time.time()
     bucket = [t for t in _issue_buckets[ip] if now - t < AUTH_ISSUE_WINDOW]
     if len(bucket) >= AUTH_ISSUE_LIMIT:

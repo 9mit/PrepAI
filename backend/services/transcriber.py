@@ -1,32 +1,37 @@
 import os
 import logging
+from typing import Optional
 import httpx
 
 logger = logging.getLogger(__name__)
 
-async def transcribe_audio(audio_bytes: bytes) -> str:
+API_URL = "https://api-inference.huggingface.co/models/openai/whisper-small"
+
+
+async def transcribe_audio(audio_bytes: bytes) -> Optional[str]:
     """
     Transcribes audio using Whisper via Hugging Face Inference API.
     Audio never written to disk, processed in memory.
+    Returns transcribed text, or None if transcription failed.
     """
     hf_token = os.getenv("HUGGINGFACE_API_KEY")
-    if not hf_token:
-        logger.error("HUGGINGFACE_API_KEY is missing")
-        return "Audio transcription failed due to missing API key."
+    if not hf_token or not hf_token.strip() or hf_token == "your-key-here":
+        logger.error("HUGGINGFACE_API_KEY is missing or unconfigured")
+        return None
 
-    headers = {"Authorization": f"Bearer {hf_token}"}
-    API_URL = "https://api-inference.huggingface.co/models/openai/whisper-small"
-    
+    headers = {"Authorization": f"Bearer {hf_token.strip()}"}
+
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(API_URL, headers=headers, content=audio_bytes, timeout=30.0)
-            
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(API_URL, headers=headers, content=audio_bytes)
+
             if response.status_code == 200:
                 result = response.json()
-                return result.get("text", "")
+                text = str(result.get("text", "")).strip()
+                return text or None
             else:
-                logger.error(f"HF API returned {response.status_code}: {response.text}")
-                return "Audio transcription failed from API."
+                logger.error("HF Inference API error %d: %s", response.status_code, response.text[:200])
+                return None
     except Exception as e:
-        logger.error(f"Error calling HF Inference API: {e}")
-        return "Audio transcription encountered an error."
+        logger.error("Exception during audio transcription: %s", e)
+        return None

@@ -133,7 +133,12 @@ const App: React.FC = () => {
 
   const renderRoute = () => {
     let component;
-    if (!user && currentRoute !== AppRoute.AUTH) {
+    const isPublicRoute =
+      currentRoute === AppRoute.AUTH ||
+      currentRoute === AppRoute.PRIVACY ||
+      currentRoute === AppRoute.TERMS;
+
+    if (!user && !isPublicRoute) {
       component = <AuthPage onLogin={handleLogin} />;
     } else {
       switch (currentRoute) {
@@ -211,7 +216,10 @@ const App: React.FC = () => {
         Skip to main content
       </a>
       <AnimatePresence mode="wait">
-        {currentRoute === AppRoute.AUTH || currentRoute === AppRoute.ONBOARDING || currentRoute === AppRoute.INTERVIEW ? (
+        {currentRoute === AppRoute.AUTH ||
+        currentRoute === AppRoute.ONBOARDING ||
+        currentRoute === AppRoute.INTERVIEW ||
+        (!user && (currentRoute === AppRoute.PRIVACY || currentRoute === AppRoute.TERMS)) ? (
           <div id="main-content">{renderRoute()}</div>
         ) : (
           <Layout currentRoute={currentRoute} user={user} onNavigate={navigate} onLogout={handleLogout}>

@@ -99,12 +99,19 @@ export function getLearningRecommendations(history: InterviewResult[]): Practice
   const recs: PracticeRecommendation[] = [];
 
   const leadershipWeak = profile.categoryTrends.find(
-    (c) => c.category.toLowerCase().includes('cultural') || c.avg < 65
+    (c) =>
+      (c.category.toLowerCase().includes('cultural') ||
+        c.category.toLowerCase().includes('leadership') ||
+        c.category.toLowerCase().includes('confidence')) &&
+      c.avg < 70
   );
   const roleWeak = profile.categoryTrends.find(
     (c) => c.category.toLowerCase().includes('role') || c.category.toLowerCase().includes('technical')
   );
   const comm = profile.categoryTrends.find((c) => c.category.toLowerCase().includes('communication'));
+  const problemWeak = profile.categoryTrends.find(
+    (c) => c.category.toLowerCase().includes('problem') && c.avg < 70
+  );
 
   if (leadershipWeak && leadershipWeak.avg < 70) {
     recs.push({
@@ -120,6 +127,16 @@ export function getLearningRecommendations(history: InterviewResult[]): Practice
       reason: 'Strengthen structured behavioral answers.',
       action: 'quiz',
       prefills: { topic: 'STAR Method' },
+    });
+  }
+
+  if (problemWeak) {
+    recs.push({
+      id: 'learn-problem-solving',
+      title: 'Practice case study problem solving',
+      reason: `${problemWeak.category} averaging ${problemWeak.avg}. A case session helps build structured breakdown skills.`,
+      action: 'interview',
+      prefills: { mode: 'case' },
     });
   }
 

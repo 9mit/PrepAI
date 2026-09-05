@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
-import { fetchUserRepos, fetchRepoContents, fetchFileContent, GithubRepo, GithubFile } from '../services/github';
+import { fetchUserRepos, fetchRepoContents, fetchFileContent, extractGithubUsername, GithubRepo, GithubFile } from '../services/github';
 
 interface GithubSidebarProps {
     user: UserProfile;
@@ -18,11 +18,10 @@ const GithubSidebar: React.FC<GithubSidebarProps> = ({ user }) => {
 
     useEffect(() => {
         if (user.githubUrl) {
-            // Extract username from "github.com/username" or "https://github.com/username"
-            const match = user.githubUrl.match(/github\.com\/([^\/]+)/);
-            if (match && match[1]) {
-                setUsername(match[1]);
-                loadRepos(match[1]);
+            const extracted = extractGithubUsername(user.githubUrl);
+            if (extracted) {
+                setUsername(extracted);
+                loadRepos(extracted);
             }
         }
     }, [user.githubUrl]);

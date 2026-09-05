@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { QuizQuestion } from '../types';
 import { markQuizComplete, recordQuizAttempt, recommendNextTopics, QuizDifficulty } from '../services/quizService';
 import { writeQuizPrefill } from '../services/interviewContext';
+import { track } from '../services/telemetry';
 
 interface QuizLabProps {
     topic: string;
@@ -49,12 +50,11 @@ const QuizLab: React.FC<QuizLabProps> = ({
         }
         setSubmitError('');
         setShowResults(true);
-        const score = selectedAnswers.filter((answer, idx) => answer === questions[idx].correctAnswer).length;
-        const percentage = Math.round((score / questions.length) * 100);
+        const score = selectedAnswers.filter((answer, idx) => answer === questions[idx]?.correctAnswer).length;
+        const total = questions.length || 1;
+        const percentage = Math.round((score / total) * 100);
         recordQuizAttempt(topic, percentage, difficulty);
-        import('../services/telemetry').then(({ track }) => {
-            track('quiz_complete', { topic, score: percentage, difficulty });
-        });
+        track('quiz_complete', { topic, score: percentage, difficulty });
         setNextTopics(recommendNextTopics(topic));
         if (score >= questions.length * 0.6) {
             markQuizComplete(topic);
@@ -62,9 +62,10 @@ const QuizLab: React.FC<QuizLabProps> = ({
     };
 
     const score = showResults
-        ? selectedAnswers.filter((answer, idx) => answer === questions[idx].correctAnswer).length
+        ? selectedAnswers.filter((answer, idx) => answer === questions[idx]?.correctAnswer).length
         : 0;
-    const percentage = showResults ? Math.round((score / questions.length) * 100) : 0;
+    const totalQ = questions.length || 1;
+    const percentage = showResults ? Math.round((score / totalQ) * 100) : 0;
     const currentQ = questions[currentQuestion];
 
     return (

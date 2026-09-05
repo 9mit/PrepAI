@@ -28,6 +28,9 @@ import {
   CompanyStyleId,
   InterviewModeId,
   TurnState,
+  AvatarStyle,
+  AvatarColor,
+  IntensityMode,
 } from '../components/interview/interviewConstants';
 
 interface SpeechRecognitionResultLike {
@@ -103,9 +106,9 @@ const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish, onBack })
   const [liveConfidence, setLiveConfidence] = useState<number | null>(null);
   const topicsCoveredRef = useRef<string[]>([]);
 
-  const [selectedStyle, setSelectedStyle] = useState(AVATAR_STYLES[0]);
-  const [selectedColor, setSelectedColor] = useState(AVATAR_COLORS[0]);
-  const [selectedIntensity, setSelectedIntensity] = useState(INTENSITY_MODES[0]);
+  const [selectedStyle, setSelectedStyle] = useState<AvatarStyle>(AVATAR_STYLES[0]);
+  const [selectedColor, setSelectedColor] = useState<AvatarColor>(AVATAR_COLORS[0]);
+  const [selectedIntensity, setSelectedIntensity] = useState<IntensityMode>(INTENSITY_MODES[0]);
 
   const modeMeta = useMemo(
     () => INTERVIEW_MODES.find((m) => m.id === interviewMode) || INTERVIEW_MODES[1],
@@ -629,7 +632,7 @@ const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish, onBack })
           silenceTimerRef.current = setTimeout(() => {
             if (turnStateRef.current !== 'listening' || isSpeakingRef.current) return;
             const fullText = `${finalTranscriptRef.current}${interimTranscript}`.trim();
-            if (fullText.length > 5) {
+            if (fullText.length > 1) {
               finalTranscriptRef.current = '';
               clearSilenceTimer();
               setSilenceHint('');
@@ -639,6 +642,8 @@ const InterviewRoom: React.FC<InterviewRoomProps> = ({ user, onFinish, onBack })
                 // ignore
               }
               void processUserInputRef.current(fullText);
+            } else {
+              setSilenceHint('');
             }
           }, 3200);
         }

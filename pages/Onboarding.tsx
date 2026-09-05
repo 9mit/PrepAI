@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { UserProfile } from '../types';
 import { extractTextFromPdf } from '../services/localParser';
 import { parseResumeText } from '../services/groq';
+import { MAX_RESUME_FILE_BYTES } from '../services/sanitize';
 
 interface OnboardingPageProps {
   user: UserProfile;
@@ -22,7 +23,6 @@ const OnboardingPage: React.FC<OnboardingPageProps> = ({ user, onComplete, onBac
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const { MAX_RESUME_FILE_BYTES } = await import('../services/sanitize');
     if (file.size > MAX_RESUME_FILE_BYTES) {
       setErrorMsg('Resume file must be 5MB or smaller.');
       return;

@@ -45,6 +45,8 @@ redis_data/
 # Testing
 coverage/
 .nyc_output/
+.pytest_cache/
+.coverage
 
 # Tesseract
 *.traineddata

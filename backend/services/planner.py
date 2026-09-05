@@ -8,8 +8,27 @@ from prompts.planner import build_planner_system_prompt
 logger = logging.getLogger(__name__)
 
 
+_client = None
+
+
+def _get_client():
+    global _client
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        return None
+    if _client is None:
+        _client = AsyncGroq(api_key=api_key)
+    return _client
+
+
 async def get_next_question(session_state: SessionState) -> Question:
-    client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    client = _get_client()
+    if client is None:
+        return Question(
+            id="q-fallback",
+            text="Tell me about a challenging project or initiative you owned recently.",
+            topic="Behavioral",
+        )
 
     asked = ", ".join(session_state.questions_asked) if session_state.questions_asked else "None"
     summaries = "\n".join(f"- {s}" for s in session_state.answer_summaries[-6:]) or "None yet"

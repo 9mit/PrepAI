@@ -166,3 +166,65 @@ describe('templates seats', () => {
     expect(csv).toContain('avg_score');
   });
 });
+
+describe('authCrypto', () => {
+  it('hashes and validates passwords using PBKDF2', async () => {
+    const { hashPassword, passwordsMatch, isHashedPassword, needsRehash, stripPassword } = await import('./authCrypto');
+    const password = 'SuperSecretPassword123!';
+    const hashed = await hashPassword(password);
+
+    expect(isHashedPassword(hashed)).toBe(true);
+    expect(hashed.startsWith('pbkdf2:')).toBe(true);
+    expect(needsRehash(hashed)).toBe(false);
+
+    const match = await passwordsMatch(password, hashed);
+    expect(match).toBe(true);
+
+    const fail = await passwordsMatch('WrongPassword', hashed);
+    expect(fail).toBe(false);
+
+    const user = { id: 'u1', name: 'Dev', password: 'secret' };
+    const sanitized = stripPassword(user);
+    expect('password' in sanitized).toBe(false);
+  });
+});
+
+describe('github helpers', () => {
+  it('extracts usernames from various formats', async () => {
+    const { extractGithubUsername } = await import('./github');
+    expect(extractGithubUsername('https://github.com/octocat')).toBe('octocat');
+    expect(extractGithubUsername('https://github.com/octocat/')).toBe('octocat');
+    expect(extractGithubUsername('github.com/torvalds')).toBe('torvalds');
+    expect(extractGithubUsername('@alice')).toBe('alice');
+    expect(extractGithubUsername('bob')).toBe('bob');
+    expect(extractGithubUsername('   ')).toBeNull();
+    expect(extractGithubUsername('invalid@user!name')).toBeNull();
+  });
+
+  it('safely decodes UTF-8 base64 strings', async () => {
+    const { decodeBase64Utf8 } = await import('./github');
+    // Multibyte unicode string: "Hello 🌍 PrepAI"
+    const utf8Str = 'Hello 🌍 PrepAI';
+    const encoded = btoa(encodeURIComponent(utf8Str).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))));
+    expect(decodeBase64Utf8(encoded)).toBe(utf8Str);
+  });
+});
+
+describe('telemetry', () => {
+  it('tracks events and computes aggregates correctly', async () => {
+    const { track, getTelemetryAggregates, clearTelemetry } = await import('./telemetry');
+    clearTelemetry();
+    track('interview_start');
+    track('api_latency', { ms: 120 });
+    track('api_latency', { ms: 80 });
+    track('interview_end');
+
+    const agg = getTelemetryAggregates();
+    expect(agg.totalEvents).toBe(4);
+    expect(agg.interviewStarts).toBe(1);
+    expect(agg.interviewEnds).toBe(1);
+    expect(agg.completionRate).toBe(100);
+    expect(agg.avgLatencyMs).toBe(100);
+  });
+});
+
