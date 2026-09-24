@@ -1,0 +1,34 @@
+{
+  "name": "prepai---advanced-interview-platform",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest --passWithNoTests"
+  },
+  "dependencies": {
+    "@mintplex-labs/piper-tts-web": "^1.0.4",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.23.26",
+    "onnxruntime-web": "^1.23.2",
+    "pdfjs-dist": "^5.4.449",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "recharts": "^3.6.0",
+    "tailwind-merge": "^3.4.0",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0",
+    "vitest": "4.1.10"
+  }
+}
